@@ -8,7 +8,7 @@ from tqdm import tqdm
 from scipy.interpolate import interp1d
 from matplotlib import pyplot as plt
 
-import optimal
+import oimalib
 
 
 err_pts_style = {'linestyle': "None", 'capsize': 1, 'ecolor': '#364f6b', 'mec': '#364f6b',
@@ -196,7 +196,7 @@ def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
 
     """
 
-    data = optimal.loadc(inputdata)
+    data = oimalib.loadc(inputdata)
     nwl = len(data.wl)
 
     nbl = data.vis2.shape[0]
@@ -478,7 +478,7 @@ def plot_model(inputdata, param, extra_error_v2=0, extra_error_cp=0, err_scale=1
     """ Plot the model compared to the data (V2 and CP) and the associated 
     residuals. """
 
-    d = optimal.loadc(inputdata)
+    d = oimalib.loadc(inputdata)
 
     e_vis2 = np.sqrt(d.e_vis2**2 + extra_error_v2**2)
     e_cp = np.sqrt(d.e_cp**2 + extra_error_cp**2) * err_scale
