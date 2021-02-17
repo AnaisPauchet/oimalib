@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Aug  7 16:31:48 2019
+
+@author: asoulain
+"""
+
+import math
+
+import numpy as np
+
+
+def norm(tab):
+    """Normalize the tab array by the maximum."""
+    return tab / np.max(tab)
+
+
+def rad2mas(rad):
+    """Convert angle in radians to milli arc-sec."""
+    mas = rad * (3600.0 * 180 / np.pi) * 10.0 ** 3
+    return mas
+
+
+def mas2rad(mas):
+    """Convert angle in milli arc-sec to radians."""
+    rad = mas * (10 ** (-3)) / (3600 * 180 / np.pi)
+    return rad
+
+
+def round_sci_digit(number):
+    """ Rounds a float number with a significant digit number. """
+    ff = str(number).split('.')[0]
+    d = str(number).split('.')[1]
+    d, ff = math.modf(number)
+    if ff == 0:
+        res = str(d).split('.')[1]
+        for i in range(len(res)):
+            if float(res[i]) != 0.:
+                sig_digit = i + 1
+                break
+    else:
+        sig_digit = 1
+
+    return float(np.round(number, sig_digit)), sig_digit
