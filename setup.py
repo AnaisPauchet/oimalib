@@ -2,7 +2,7 @@
 
 from setuptools import find_packages, setup
 
-project_name = "optimal"
+project_name = "oimalib"
 
 setup(
     name=project_name,
