@@ -1,1 +1,1 @@
-# optimal
+# OPTical Interferometry Modelisation & Analasis Library 
