@@ -1,15 +1,15 @@
-from . import models
-from .fit.dpfit import leastsqFit
-from .tools import mas2rad, round_sci_digit
+from multiprocessing import Pool
 
 import numpy as np
-from multiprocessing import Pool
-from tqdm import tqdm
-from scipy.interpolate import interp1d
 from matplotlib import pyplot as plt
+from scipy.interpolate import interp1d
+from tqdm import tqdm
 
 import oimalib
 
+from . import models
+from .fit.dpfit import leastsqFit
+from .tools import mas2rad, round_sci_digit
 
 err_pts_style = {'linestyle': "None", 'capsize': 1, 'ecolor': '#364f6b', 'mec': '#364f6b',
                  'marker': '.', 'elinewidth': 0.5, 'alpha': 1, 'ms': 14}
@@ -46,6 +46,10 @@ def check_params_model(param):
         angle = np.deg2rad(param["angle"])
         if (elong < 1) or (angle < 0) or (angle > np.pi) or (minorAxis < 0):
             log = "# elong > 1,\n# minorAxis > 0 mas,\n# 0 < angle < 180 deg.\n"
+            isValid = False
+    elif param['model'] == 'binary':
+        dm = param["dm"]
+        if dm < 1:
             isValid = False
 
     return isValid, log
@@ -196,7 +200,7 @@ def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
 
     """
 
-    data = oimalib.loadc(inputdata)
+    data = oimalib.load(inputdata)
     nwl = len(data.wl)
 
     nbl = data.vis2.shape[0]
@@ -478,7 +482,7 @@ def plot_model(inputdata, param, extra_error_v2=0, extra_error_cp=0, err_scale=1
     """ Plot the model compared to the data (V2 and CP) and the associated 
     residuals. """
 
-    d = oimalib.loadc(inputdata)
+    d = oimalib.load(inputdata)
 
     e_vis2 = np.sqrt(d.e_vis2**2 + extra_error_v2**2)
     e_cp = np.sqrt(d.e_cp**2 + extra_error_cp**2) * err_scale
@@ -486,7 +490,7 @@ def plot_model(inputdata, param, extra_error_v2=0, extra_error_cp=0, err_scale=1
     model_target = select_model(param['model'])
 
     u, v, wl = d.u, d.v, d.wl
-    
+
     mod_v2 = comput_V2([u, v, wl], param, model_target)
 
     u1, u2, v1, v2 = d.u1, d.u2, d.v1, d.v2
