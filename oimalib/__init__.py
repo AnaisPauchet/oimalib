@@ -1,5 +1,5 @@
-from .oifits import load, plot_oidata, plot_uv
-from .oifits import OiFile2Class as loadc
+from .oifits import load
+from .plotting import plot_oidata, plot_uv
 from .fitting import smartfit
 
 # , binary, cubetools, fitting, fourier, VisModels)
