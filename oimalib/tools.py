@@ -9,6 +9,7 @@ Created on Wed Aug  7 16:31:48 2019
 import math
 
 import numpy as np
+from astropy import constants as cs
 
 
 def norm(tab):
@@ -43,3 +44,19 @@ def round_sci_digit(number):
         sig_digit = 1
 
     return float(np.round(number, sig_digit)), sig_digit
+
+
+def planck_law(T, wl, norm=False):
+    h = cs.h.value
+    c = cs.c.value
+    k = cs.k_B.value
+    sigma = cs.sigma_sb.value
+    P = (4 * np.pi**2) * sigma * T**4
+
+    B = ((2 * h * c**2 * wl**-5) /
+         (np.exp(h * c / (wl * k * T)) - 1)) / 1e6  # W/m2/micron
+    if norm:
+        res = B / P  # kW/m2/sr/m
+    else:
+        res = B
+    return res
