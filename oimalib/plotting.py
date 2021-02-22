@@ -294,7 +294,7 @@ def plot_oidata(tab, use_flag=True, cmax=200, v2min=0, v2max=1.2, model=False, p
                 X = [u1, u2, u3, v1, v2, v3, wl2]
                 mod_cp = comput_CP(X, param, model_target)
                 # in_uncer = (abs(mod_cp - cp) < 1*e_cp)
-                ax2.plot(freq_cp, mod_cp, marker='x',
+                ax2.plot(freq_cp, mod_cp, marker='x', ls='',
                          color='crimson', ms=5, zorder=100, alpha=.7)
                 # ax2.plot(freq_cp[~in_uncer], mod_cp[~in_uncer],
                 #          'rx', ms=5, zorder=100, alpha=.7)
