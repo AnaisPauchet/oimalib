@@ -184,8 +184,7 @@ def oifits2dic(filename, rad=False):
             Bmax = np.sqrt(Bmax)
             temp2 = {}
             temp2['Bmax'] = Bmax
-            temp2['Date'] = Bmax
-            temp2['hdr'] = hdrr
+            # temp2['hdr'] = hdrr
             if 'PIONIER' in ins:
                 temp2['Ins'] = 'PIONIER'
             elif 'GRAVITY' in ins:
@@ -308,14 +307,16 @@ def load(namefile, target=None, cam=None, AverPolar=True, pol=None,
 
     data = oifits2dic(namefile, rad=rad)
 
-    hdr = data['info']['hdr']
+    fitsHandler = fits.open(namefile)
+    hdr = fitsHandler[0].header
+    
     try:
-        date = hdr['DATE-OBS']
+        date = data['info']['Date']
     except KeyError:
         date = ''
 
     try:
-        obj = hdr['OBJECT']
+        obj = data['info']['target']
     except KeyError:
         obj = target
 
@@ -328,7 +329,8 @@ def load(namefile, target=None, cam=None, AverPolar=True, pol=None,
         seeing = hdr['HIERARCH ESO ISS AMBI FWHM START']
         tau0 = hdr['HIERARCH ESO ISS AMBI TAU0 START']
     except KeyError:
-        print('Warning: header keyword format is not ESO standard.')
+        if verbose:
+            print('Warning: header keyword format is not ESO standard.')
 
     try:
         relFT = hdr['HIERARCH ESO QC TRACKING_RATIO']
@@ -482,7 +484,7 @@ def load(namefile, target=None, cam=None, AverPolar=True, pol=None,
         index = data['Vis2; %s' % (ins)]['STA_INDEX']
         index_cp = data['cp_phi; %s' % (ins)]['STA_INDEX']
 
-    freq_cp, freq_vis2 = [], []
+    freq_cp, freq_vis2, bl_cp = [], [], []
 
     for i in range(len(u1)):
         B1 = np.sqrt(u1[i]**2+v1[i]**2)
@@ -490,6 +492,7 @@ def load(namefile, target=None, cam=None, AverPolar=True, pol=None,
         B3 = np.sqrt(u3[i]**2+v3[i]**2)
 
         Bmax = np.max([B1, B2, B3])
+        bl_cp.append(Bmax)
         freq_cp.append(Bmax/wl/206264.806247)  # convert to arcsec-1
 
     for i in range(len(u)):
@@ -497,6 +500,7 @@ def load(namefile, target=None, cam=None, AverPolar=True, pol=None,
 
     freq_cp = np.array(freq_cp)
     freq_vis2 = np.array(freq_vis2)
+    bl_cp = np.array(bl_cp)
 
     dic_output = {'vis2': vis2, 'e_vis2': e_vis2,
                   'cp': cp, 'e_cp': e_cp,
@@ -504,17 +508,18 @@ def load(namefile, target=None, cam=None, AverPolar=True, pol=None,
                   'u1': u1, 'u2': u2, 'u3': u3,
                   'v1': v1, 'v2': v2, 'v3': v3,
                   'teles_ref': teles_ref, 'index_ref': index_ref,
-                  'B': B, 'index': index, 'index_cp': index_cp,
+                  'bl': B, 'bl_cp': bl_cp, 'index': index, 'index_cp': index_cp,
                   'freq_cp': freq_cp, 'freq_vis2': freq_vis2,
                   'flag_vis2': flag_vis2, 'flag_cp': flag_cp,
+                  'info': data['info']
                   }
 
     data = dict2class(dic_output)
     return data
 
 
-def data2obs(data, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
-             extra_error_v2=0, extra_error_cp=0, err_scale=1, cond_uncer=False,
+def data2obs(data, use_flag=True, cond_wl=False, wl_bounds=None,
+             extra_error_v2=0, extra_error_cp=0, err_scale_cp=1, err_scale_v2=1, cond_uncer=False,
              rel_max=None, verbose=True, input_rad=False):
     """
     Convert and select data from the object format (load() function).
@@ -534,8 +539,8 @@ def data2obs(data, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
         Additonal error to apply on vis2 data (quadratically added),\n
     `extra_error_cp` {float}:
         Additonal error to apply on cp data (quadratically added),\n
-    `err_scale` {float}:
-        Scaling factor to apply on all vis2 data (multiplicative factor),\n
+    `err_scale_v2`, `err_scale_cp` {float}:
+        Scaling factor to apply on uncertainties (multiplicative factor),\n
     `cond_uncer` {boolean}:
         If True, select the best data according their relative uncertainties (`rel_max`),\n
     `rel_max` {float}:
@@ -559,17 +564,18 @@ def data2obs(data, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
     ncp = data.cp.shape[0]
 
     vis2_data = data.vis2.flatten()  # * 0.97
-    e_vis2_data = ((data.e_vis2.flatten()**2 + extra_error_v2**2)**0.5) * err_scale
+    e_vis2_data = ((data.e_vis2.flatten()**2 +
+                    extra_error_v2**2)**0.5) * err_scale_v2
     flag_V2 = data.flag_vis2.flatten()
 
     if input_rad:
         cp_data = np.rad2deg(data.cp.flatten())
         e_cp_data = np.rad2deg(
-            np.sqrt(data.e_cp.flatten()**2+extra_error_cp**2))
+            np.sqrt(data.e_cp.flatten()**2+extra_error_cp**2)) * err_scale_cp
     else:
         cp_data = data.cp.flatten()
         e_cp_data = np.sqrt(data.e_cp.flatten()**2 +
-                            extra_error_cp**2)
+                            extra_error_cp**2) * err_scale_cp
 
     flag_CP = data.flag_cp.flatten()
 
@@ -625,7 +631,7 @@ def data2obs(data, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
                     obs.append([tmp, typ, obser, err])
 
             else:
-                if (wl_data[i] >= wl_min*1e-6) & (wl_data[i] <= wl_max*1e-6):
+                if (wl_data[i] >= wl_bounds[0]*1e-6) & (wl_data[i] <= wl_bounds[1]*1e-6):
                     tmp = [u_data[i], v_data[i], wl_data[i]]
                     typ = 'V2'
                     obser = vis2_data[i]
@@ -659,7 +665,7 @@ def data2obs(data, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
                 else:
                     obs.append([tmp, typ, obser, err])
             else:
-                if (wl_data_cp[i] >= wl_min*1e-6) & (wl_data_cp[i] <= wl_max*1e-6):
+                if (wl_data_cp[i] >= wl_bounds[0]*1e-6) & (wl_data_cp[i] <= wl_bounds[1]*1e-6):
                     tmp = [u1_data[i], u2_data[i], (u1_data[i]+u2_data[i]), v1_data[i], v2_data[i],
                            (v1_data[i]+v2_data[i]), wl_data_cp[i]]
                     typ = 'CP'
@@ -686,7 +692,7 @@ def data2obs(data, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
             print('-> Flag in oifits files used.')
         if cond_wl:
             print(r'-> Restriction on wavelenght: %2.2f < %s < %2.2f µm' %
-                  (wl_min, chr(955), wl_max))
+                  (wl_bounds[0], chr(955), wl_bounds[1]))
         if cond_uncer:
             print(r'-> Restriction on uncertainties: %s < %2.1f %%' %
                   (chr(949), rel_max))
