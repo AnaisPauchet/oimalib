@@ -417,9 +417,9 @@ def visClumpDebrisDisk(Utable, Vtable, Lambda, param):
     return f_debrisdisk * deb_disk + f_clump * C_clump
 
 
-def compute_param_elts(ruse, tetuse, alpha, thick, incl, angleSky, angle_0,
-                       step, rounds, rnuc=0, proj=True, limit_speed=False, display=False,
-                       verbose=False):
+def _compute_param_elts(ruse, tetuse, alpha, thick, incl, angleSky, angle_0,
+                        step, rounds, rnuc=0, proj=True, limit_speed=False, display=False,
+                        verbose=False):
     angle0 = tetuse + angle_0
     x0 = ruse * np.cos(angle0)
     y0 = ruse * np.sin(angle0)
@@ -485,7 +485,7 @@ def compute_param_elts(ruse, tetuse, alpha, thick, incl, angleSky, angle_0,
     return x0*proj_fact, y0*proj_fact, x2*proj_fact, y2*proj_fact, fwhmx2*proj_fact, fwhmy2*proj_fact, angle2
 
 
-def compute_param_elts_spec(mjd, param, verbose=True, display=True):
+def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
     """ Compute only once the elements parameters fo the spiral. """
     # Pinwheel parameters
     rounds = float(param["Nturns"])
@@ -577,11 +577,12 @@ def compute_param_elts_spec(mjd, param, verbose=True, display=True):
     thick = minThick + ruse / (max(r) + (max(r) == 0)) * maxThick
 
     proj = param['proj']
-    tab_orient = compute_param_elts(ruse, tetuse, alpha, thick,
-                                    incl, angleSky, angle_0, step, rounds, param['r_nuc'], proj=proj, limit_speed=False, display=display)
-    tab_faceon = compute_param_elts(ruse, tetuse, alpha, thick,
-                                    0, 0, angle_0, step=step, rounds=rounds, rnuc=param['r_nuc'],
-                                    proj=proj, limit_speed=False, display=False, verbose=verbose)
+    tab_orient = _compute_param_elts(ruse, tetuse, alpha, thick,
+                                     incl, angleSky, angle_0, step, rounds, param['r_nuc'], proj=proj,
+                                     limit_speed=False, display=display)
+    tab_faceon = _compute_param_elts(ruse, tetuse, alpha, thick,
+                                     0, 0, angle_0, step=step, rounds=rounds, rnuc=param['r_nuc'],
+                                     proj=proj, limit_speed=False, display=False, verbose=verbose)
     return tab_orient, tab_faceon, typei, N2, r_nuc, step, alpha
 
 
@@ -591,7 +592,7 @@ def sed_pwhl(wl, mjd, param, verbose=True, display=True):
                            v=2, au=True, display=False)
         param['a'] = tab['a']
 
-    tab_orient, tab_faceon, typei, N2, r_nuc, step, alpha = compute_param_elts_spec(
+    tab_orient, tab_faceon, typei, N2, r_nuc, step, alpha = _compute_param_elts_spec(
         mjd, param, verbose=verbose, display=display)
 
     dmas = rad2mas(np.sqrt(tab_faceon[2] ** 2 + tab_faceon[3] ** 2))
@@ -680,10 +681,10 @@ def visPinwheel(Utable, Vtable, Lambda, mjd, param, spec=None, fillFactor=20, ve
         Shift along x and y position [rad].
     """
 
-    # Start using the 'compute_param_elts_spec' function to determine the elements
+    # Start using the '_compute_param_elts_spec' function to determine the elements
     # parameters composing the spiral. Used to easely get these parameters and
     # determine the SED of the actual elements of the spiral.
-    tab_orient, tab_faceon, typei, N2, r_nuc, step, alpha = compute_param_elts_spec(
+    tab_orient, tab_faceon, typei, N2, r_nuc, step, alpha = _compute_param_elts_spec(
         mjd, param, verbose=verbose, display=display)
 
     x0, y0, x2, y2, fwhmx2, fwhmy2, angle2 = tab_orient

@@ -15,9 +15,61 @@ import numpy as np
 from astropy.io import fits
 from matplotlib import pyplot as plt
 from munch import munchify as dict2class
-from termcolor import cprint
+
+from oimalib.plotting import dic_color
 
 plt.close('all')
+
+
+def _compute_bl_name(index, index_ref, teles_ref):
+    """ Compute baseline name and check if the appropriate color 
+    is already associated (for the VLTI). """
+    dic_index = {}
+    nbl = len(index)
+    for i in range(len(index_ref)):
+        ind = index_ref[i]
+        tel = teles_ref[i]
+        if ind not in dic_index.keys():
+            dic_index[ind] = tel
+
+    list_bl_name = []
+    nbl = len(index)
+    for i in range(nbl):
+        base = '%s-%s' % (dic_index[index[i][0]],
+                          dic_index[index[i][1]])
+        base2 = '%s-%s' % (dic_index[index[i][1]],
+                           dic_index[index[i][0]])
+        if base in list(dic_color.keys()):
+            baseline_name = base
+        elif base2 in list(dic_color.keys()):
+            baseline_name = base2
+        else:
+            baseline_name = base
+        list_bl_name.append(baseline_name)
+    list_bl_name = np.array(list_bl_name)
+    return list_bl_name
+
+
+def _compute_cp_name(index_cp, index_ref, teles_ref):
+    """ Compute triplet name and check if the appropriate color 
+    is already associated (for the VLTI). """
+    dic_index = {}
+    ncp = len(index_cp)
+    for i in range(len(index_ref)):
+        ind = index_ref[i]
+        tel = teles_ref[i]
+        if ind not in dic_index.keys():
+            dic_index[ind] = tel
+
+    list_cp_name = []
+    for i in range(ncp):
+        b1 = dic_index[index_cp[i][0]]
+        b2 = dic_index[index_cp[i][1]]
+        b3 = dic_index[index_cp[i][2]]
+        triplet = '%s-%s-%s' % (b1, b2, b3)
+        list_cp_name.append(triplet)
+    list_cp_name = np.array(list_cp_name)
+    return list_cp_name
 
 
 def oifits2dic(filename, rad=False):
@@ -43,16 +95,8 @@ def oifits2dic(filename, rad=False):
     # -- load Wavelength and Array: ----------------------------------------------
     for hdu in fitsHandler[1:]:
         if hdu.header['EXTNAME'] == 'OI_WAVELENGTH':
-            if 'PIONIER' in hdu.header['INSNAME']:
-                ins = 'PIONIER'
-                wavel['PIONIER'] = wlOffset + hdu.data['EFF_WAVE']*1e6  # in um
-            else:
-                ins = hdu.header['INSNAME']
-                if 'GRAVITY' in ins:
-                    if ('FT' not in ins) and ('SC' not in ins):
-                        ins = 'GRAVITY_simu'
-                wavel[ins] = wlOffset + \
-                    hdu.data['EFF_WAVE']*1e6  # in um
+            ins = hdu.header['INSNAME']
+            wavel[ins] = wlOffset + hdu.data['EFF_WAVE']*1e6  # in um
         if hdu.header['EXTNAME'] == 'OI_ARRAY':
             name = hdu.header['ARRNAME']
             diam = hdu.data['DIAMETER'].mean()
@@ -72,9 +116,11 @@ def oifits2dic(filename, rad=False):
     for hdu in fitsHandler[1:]:
         if hdu.header['EXTNAME'] == 'OI_T3':
             ins = hdu.header['INSNAME']
-            if 'GRAVITY' in ins:
-                if ('FT' not in ins) and ('SC' not in ins):
-                    ins = 'GRAVITY_simu'
+            # if 'GRAVITY' in ins:
+            #     if ('FT' not in ins) and ('SC' not in ins):
+            #         ins = 'GRAVITY_simu'
+            # elif'PIONIER' in ins:
+            #     ins = 'PIONIER'
 
             # ----------------------------
             #       Closure phase
@@ -83,7 +129,6 @@ def oifits2dic(filename, rad=False):
                 data = np.rad2deg(hdu.data['T3PHI'])
             else:
                 data = hdu.data['T3PHI']
-            # print data, filename
             if len(data.shape) == 1:
                 data = np.array([np.array([d]) for d in data])
 
@@ -108,10 +153,9 @@ def oifits2dic(filename, rad=False):
                 temp['wavel'] = wavel[ins][None, :][0]
                 temp['MJD'] = hdu.data['MJD'][0]
                 temp['data'] = data
+                ncp_master = len(data)
                 temp['flag'] = hdu.data['FLAG']
                 temp['err'] = err
-                if 'PIONIER' in ins:
-                    ins = 'PIONIER'
                 tab_data['cp_phi; '+ins] = temp
             else:
                 print(' | WARNING: no valid T3PHI values in this HDU')
@@ -143,9 +187,6 @@ def oifits2dic(filename, rad=False):
                 print(' | WARNING: no valid T3AMP values in this HDU')
         if hdu.header['EXTNAME'] == 'OI_VIS2':
             ins = hdu.header['INSNAME']
-            if 'GRAVITY' in ins:
-                if ('FT' not in ins) and ('SC' not in ins):
-                    ins = 'GRAVITY_simu'
             # ----------------------------
             #      Squared Vis. (V2)
             # ----------------------------
@@ -163,6 +204,7 @@ def oifits2dic(filename, rad=False):
             temp['MJD'] = hdu.data['MJD'][0]
             temp['err'] = err
             temp['data'] = data
+            nbl_master = len(data)
             temp['flag'] = hdu.data['FLAG']
             tab_data['Vis2; '+ins] = temp
 
@@ -176,7 +218,6 @@ def oifits2dic(filename, rad=False):
                 b_name = []
                 for x in np.unique(hdu.data['STA_INDEX']):
                     b_name.append(config[x])
-
                 config = b_name
 
             # -------- INFO ---------
@@ -184,20 +225,15 @@ def oifits2dic(filename, rad=False):
             Bmax = np.sqrt(Bmax)
             temp2 = {}
             temp2['Bmax'] = Bmax
-            # temp2['hdr'] = hdrr
-            if 'PIONIER' in ins:
-                temp2['Ins'] = 'PIONIER'
-            elif 'GRAVITY' in ins:
-                if ('FT' not in ins) and ('SC' not in ins):
-                    temp2['Ins'] = 'GRAVITY_simu'
-                else:
-                    temp2['Ins'] = ins
-            else:
-                temp2['Ins'] = ins
+            temp2['hdr'] = hdrr
+            temp2['Ins'] = ins
             temp2['Index'] = index
             temp2['Config'] = config
+            temp2['Array'] = name
             temp2['Target'] = target
             temp2['L_base'] = l_B
+            temp2['nbl'] = nbl_master
+
             try:
                 temp2['Date'] = fitsHandler[0].header['MJD-OBS']
             except KeyError:
@@ -207,9 +243,6 @@ def oifits2dic(filename, rad=False):
 
         if hdu.header['EXTNAME'] == 'OI_VIS':
             ins = hdu.header['INSNAME']
-            if 'GRAVITY' in ins:
-                if ('FT' not in ins) and ('SC' not in ins):
-                    ins = 'GRAVITY_simu'
             # ------------------------
             #          Vis.
             # ------------------------
@@ -235,9 +268,6 @@ def oifits2dic(filename, rad=False):
             #    Vis. amplitude
             # ------------------------
             data = hdu.data['VISAMP']
-            if 'GRAVITY' in ins:
-                if ('FT' not in ins) and ('SC' not in ins):
-                    ins = 'GRAVITY_simu'
             if len(data.shape) == 1:
                 data = np.array([np.array([d]) for d in data])
             err = hdu.data['VISAMPERR']
@@ -270,252 +300,8 @@ def oifits2dic(filename, rad=False):
             temp['data'] = data
             tab_data['Vis_phi; '+ins] = temp
 
+    tab_data['info']['ncp'] = ncp_master
     return tab_data
-
-
-def load(namefile, target=None, cam=None, AverPolar=True, pol=None,
-         simu=False, verbose=False, rad=False):
-    """
-    Converts the oifits data to a usable object format (data).
-
-    Parameters:
-    -----------
-
-    `namefile` {str}:
-        Name of the oifits file,\n
-    `target` {str}:
-        Name of the target if not in the header,\n
-    `cam` {int}:
-        Only for GRAVITY data: corresponds to the used camera ('SC': science camera
-        or 'FT': fringe tracker camera). Default = None,\n
-    `AverPolar` {bool}:
-        Only for GRAVITY data. AverPolar = True: the two polarisation are averaged 
-        during the process,\n
-    `pol` {int}:
-        Only for GRAVITY data. Selected polarisation used during the process
-        (1 or 2),\n
-    `simu` {bool}:
-        If True, the oifits come from ASPRO2.
-
-    Return:
-    -------
-
-    `data` {obj}:
-        Easy object format stored with all the interferometrical observables 
-        (u=data.u, cp=data.cp, V2=data.vis2, etc.)\n
-    """
-
-    data = oifits2dic(namefile, rad=rad)
-
-    fitsHandler = fits.open(namefile)
-    hdr = fitsHandler[0].header
-    
-    try:
-        date = data['info']['Date']
-    except KeyError:
-        date = ''
-
-    try:
-        obj = data['info']['target']
-    except KeyError:
-        obj = target
-
-    ins = data['info']['Ins']
-    index_ref = data['info']['Index']
-    teles_ref = data['info']['Config']
-
-    try:
-        # Extract usable information of the OIfits file.
-        seeing = hdr['HIERARCH ESO ISS AMBI FWHM START']
-        tau0 = hdr['HIERARCH ESO ISS AMBI TAU0 START']
-    except KeyError:
-        if verbose:
-            print('Warning: header keyword format is not ESO standard.')
-
-    try:
-        relFT = hdr['HIERARCH ESO QC TRACKING_RATIO']
-    except KeyError:
-        relFT = np.nan
-
-    if 'GRAVITY' in ins:
-        ins = ins.split('_')[0]
-        if (cam is None) and not (simu):
-            cprint('-'*38, 'red')
-            cprint('GRAVITY data file: please chose a camera (SC or FT)', 'red')
-            cprint('-'*38, 'red')
-            return None
-
-    if verbose:
-        if len(teles_ref) == 4:
-            print('\n%s: %s (%s-%s-%s-%s), %s' % (ins, obj,
-                                                  teles_ref[0], teles_ref[1],
-                                                  teles_ref[2], teles_ref[3], date))
-        elif len(teles_ref) == 3:
-            print('\n%s: %s (%s-%s-%s), %s' %
-                  (ins, obj, teles_ref[0], teles_ref[1], teles_ref[2], date))
-        print('-'*50)
-
-    if verbose:
-        try:
-            if ins == 'GRAVITY':
-                print('Seeing = %2.2f, tau0 = %2.1f ms, FT = %2.1f %%' %
-                      (seeing, tau0*1000., relFT))
-            else:
-                print('Seeing = %2.2f, tau0 = %2.1f ms' % (seeing, tau0*1000.))
-        except Exception:
-            pass
-
-    dic_ind = {}
-    for i in range(len(index_ref)):
-        dic_ind[index_ref[i]] = teles_ref[i]
-
-    if ins == 'GRAVITY':
-        if simu:
-            vis2 = data['Vis2; %s_simu' % ins]['data']
-            e_vis2 = data['Vis2; %s_simu' % ins]['err']
-            cp = data['cp_phi; %s_simu' % ins]['data']
-            e_cp = data['cp_phi; %s_simu' % ins]['err']
-
-            flag_vis2 = data['Vis2; %s_simu' % ins]['flag']
-            flag_cp = data['cp_phi; %s_simu' % ins]['flag']
-
-            wl = data['Vis2; %s_simu' % (ins)]['wavel'] * 1e-6
-            u1 = data['cp_phi; %s_simu' % ins]['U1COORD'][:, 0]
-            u2 = data['cp_phi; %s_simu' % ins]['U2COORD'][:, 0]
-            v1 = data['cp_phi; %s_simu' % ins]['V1COORD'][:, 0]
-            v2 = data['cp_phi; %s_simu' % ins]['V2COORD'][:, 0]
-            u3 = (u1+u2)
-            v3 = (v1+v2)
-
-            u = data['Vis2; %s_simu' % ins]['UCOORD'][:, 0]
-            v = data['Vis2; %s_simu' % ins]['VCOORD'][:, 0]
-
-            B = np.sqrt(u**2 + v**2)
-
-            index = data['Vis2; %s_simu' % (ins)]['STA_INDEX']
-            index_cp = data['cp_phi; %s_simu' % (ins)]['STA_INDEX']
-        else:
-            if AverPolar:
-                # V2
-                # ---------------------
-                vis2_1 = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['data']
-                vis2_2 = data['Vis2; GRAVITY_%s_P%s' % (cam, 2)]['data']
-
-                vis2 = (vis2_1 + vis2_2)/2.  # Average polaristion of GRAVITY
-
-                e_vis2_1 = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['err']
-                e_vis2_2 = data['Vis2; GRAVITY_%s_P%s' % (cam, 2)]['err']
-
-                e_vis2 = (e_vis2_1**2 + e_vis2_2**2)**0.5
-
-                cp_1 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['data']
-                cp_2 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 2)]['data']
-
-                cp = (cp_1 + cp_2)/2.
-
-                e_cp_1 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['err']
-                e_cp_2 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 2)]['err']
-
-                e_cp = (e_cp_1**2 + e_cp_2**2)**0.5
-
-                u1 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['U1COORD'][:, 0]
-                u2 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['U2COORD'][:, 0]
-                v1 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['V1COORD'][:, 0]
-                v2 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['V2COORD'][:, 0]
-                u3 = (u1+u2)
-                v3 = (v1+v2)
-
-                u = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['UCOORD'][:, 0]
-                v = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['VCOORD'][:, 0]
-
-                flag_vis2 = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['flag']
-                flag_cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['flag']
-
-            else:
-                vis2 = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['data']
-                e_vis2 = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['err']
-                cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, pol)]['data']
-                e_cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, pol)]['err']
-
-                u1 = data['cp_phi; GRAVITY_%s_P%s' %
-                          (cam, pol)]['U1COORD'][:, 0]
-                u2 = data['cp_phi; GRAVITY_%s_P%s' %
-                          (cam, pol)]['U2COORD'][:, 0]
-                v1 = data['cp_phi; GRAVITY_%s_P%s' %
-                          (cam, pol)]['V1COORD'][:, 0]
-                v2 = data['cp_phi; GRAVITY_%s_P%s' %
-                          (cam, pol)]['V2COORD'][:, 0]
-                u3 = (u1+u2)
-                v3 = (v1+v2)
-
-                u = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['UCOORD'][:, 0]
-                v = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['VCOORD'][:, 0]
-
-                flag_vis2 = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['flag']
-                flag_cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, pol)]['flag']
-
-            wl = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['wavel'] * 1e-6
-            index = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['STA_INDEX']
-            index_cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['STA_INDEX']
-            B = np.sqrt(u**2 + v**2)
-
-    else:
-        vis2 = data['Vis2; %s' % ins]['data']
-        e_vis2 = data['Vis2; %s' % ins]['err']
-        cp = data['cp_phi; %s' % ins]['data']
-        e_cp = data['cp_phi; %s' % ins]['err']
-
-        flag_vis2 = data['Vis2; %s' % ins]['flag']
-        flag_cp = data['cp_phi; %s' % ins]['flag']
-
-        wl = data['Vis2; %s' % (ins)]['wavel'] * 1e-6
-        u1 = data['cp_phi; %s' % ins]['U1COORD'][:, 0]
-        u2 = data['cp_phi; %s' % ins]['U2COORD'][:, 0]
-        v1 = data['cp_phi; %s' % ins]['V1COORD'][:, 0]
-        v2 = data['cp_phi; %s' % ins]['V2COORD'][:, 0]
-        u3 = (u1+u2)
-        v3 = (v1+v2)
-
-        u = data['Vis2; %s' % ins]['UCOORD'][:, 0]
-        v = data['Vis2; %s' % ins]['VCOORD'][:, 0]
-
-        B = np.sqrt(u**2 + v**2)
-
-        index = data['Vis2; %s' % (ins)]['STA_INDEX']
-        index_cp = data['cp_phi; %s' % (ins)]['STA_INDEX']
-
-    freq_cp, freq_vis2, bl_cp = [], [], []
-
-    for i in range(len(u1)):
-        B1 = np.sqrt(u1[i]**2+v1[i]**2)
-        B2 = np.sqrt(u2[i]**2+v2[i]**2)
-        B3 = np.sqrt(u3[i]**2+v3[i]**2)
-
-        Bmax = np.max([B1, B2, B3])
-        bl_cp.append(Bmax)
-        freq_cp.append(Bmax/wl/206264.806247)  # convert to arcsec-1
-
-    for i in range(len(u)):
-        freq_vis2.append(B[i]/wl/206264.806247)  # convert to arcsec-1
-
-    freq_cp = np.array(freq_cp)
-    freq_vis2 = np.array(freq_vis2)
-    bl_cp = np.array(bl_cp)
-
-    dic_output = {'vis2': vis2, 'e_vis2': e_vis2,
-                  'cp': cp, 'e_cp': e_cp,
-                  'wl': wl, 'u': u, 'v': v,
-                  'u1': u1, 'u2': u2, 'u3': u3,
-                  'v1': v1, 'v2': v2, 'v3': v3,
-                  'teles_ref': teles_ref, 'index_ref': index_ref,
-                  'bl': B, 'bl_cp': bl_cp, 'index': index, 'index_cp': index_cp,
-                  'freq_cp': freq_cp, 'freq_vis2': freq_vis2,
-                  'flag_vis2': flag_vis2, 'flag_cp': flag_cp,
-                  'info': data['info']
-                  }
-
-    data = dict2class(dic_output)
-    return data
 
 
 def data2obs(data, use_flag=True, cond_wl=False, wl_bounds=None,
@@ -724,3 +510,245 @@ def dir2data(filedir):
         data = load(f, cam='SC')
         tab.append(data)
     return tab
+
+
+def load(namefile, target=None, cam='SC', aver_polar=True, pol=None,
+         verbose=False, rad=False):
+    """
+    Converts the oifits data to a usable object format (data).
+
+    Parameters:
+    -----------
+
+    `namefile` {str}:
+        Name of the oifits file,\n
+    `target` {str}:
+        Name of the target if not in the header,\n
+    `cam` {int}:
+        Only for GRAVITY data: corresponds to the used camera ('SC': science camera
+        or 'FT': fringe tracker camera). Default = None,\n
+    `aver_polar` {bool}:
+        Only for GRAVITY data. `aver_polar` = True: the two polarisation are averaged 
+        during the process,\n
+    `pol` {int}:
+        Only for GRAVITY data. Selected polarisation used during the process
+        (1 or 2).\n
+
+    Return:
+    -------
+    `data` {obj}:
+        class-like object containing all interferometrical observables 
+        (u=data.u, cp=data.cp, V2=data.vis2, etc.)\n
+    """
+
+    data = oifits2dic(namefile, rad=rad)
+
+    fitsHandler = fits.open(namefile)
+    hdr = fitsHandler[0].header
+
+    try:
+        date = data['info']['Date']
+    except KeyError:
+        date = ''
+
+    try:
+        obj = data['info']['target']
+    except KeyError:
+        obj = target
+
+    ins = data['info']['Ins']
+    index_ref = data['info']['Index']
+    teles_ref = data['info']['Config']
+
+    try:
+        # Extract usable information of the OIfits file.
+        seeing = hdr['HIERARCH ESO ISS AMBI FWHM START']
+        tau0 = hdr['HIERARCH ESO ISS AMBI TAU0 START']
+    except KeyError:
+        if verbose:
+            print('Warning: header keyword format is not ESO standard.')
+
+    try:
+        relFT = hdr['HIERARCH ESO QC TRACKING_RATIO']
+    except KeyError:
+        relFT = np.nan
+
+    if 'GRAVITY' in ins:
+        simu = False
+        if not (('FT' in ins) or ('SC' in ins)):
+            simu = True
+
+    if verbose:
+        if len(teles_ref) == 4:
+            print('\n%s: %s (%s-%s-%s-%s), %s' % (ins, obj,
+                                                  teles_ref[0], teles_ref[1],
+                                                  teles_ref[2], teles_ref[3], date))
+        elif len(teles_ref) == 3:
+            print('\n%s: %s (%s-%s-%s), %s' %
+                  (ins, obj, teles_ref[0], teles_ref[1], teles_ref[2], date))
+        print('-'*50)
+
+    if verbose:
+        try:
+            if ins == 'GRAVITY':
+                print('Seeing = %2.2f, tau0 = %2.1f ms, FT = %2.1f %%' %
+                      (seeing, tau0*1000., relFT))
+            else:
+                print('Seeing = %2.2f, tau0 = %2.1f ms' % (seeing, tau0*1000.))
+        except Exception:
+            pass
+
+    # if ins == 'GRAVITY':
+
+    if (ins == 'GRAVITY') and not simu:
+        # if simu:
+        #     vis2 = data['Vis2; %s_simu' % ins]['data']
+        #     e_vis2 = data['Vis2; %s_simu' % ins]['err']
+        #     cp = data['cp_phi; %s_simu' % ins]['data']
+        #     e_cp = data['cp_phi; %s_simu' % ins]['err']
+
+        #     flag_vis2 = data['Vis2; %s_simu' % ins]['flag']
+        #     flag_cp = data['cp_phi; %s_simu' % ins]['flag']
+
+        #     wl = data['Vis2; %s_simu' % (ins)]['wavel'] * 1e-6
+        #     u1 = data['cp_phi; %s_simu' % ins]['U1COORD'][:, 0]
+        #     u2 = data['cp_phi; %s_simu' % ins]['U2COORD'][:, 0]
+        #     v1 = data['cp_phi; %s_simu' % ins]['V1COORD'][:, 0]
+        #     v2 = data['cp_phi; %s_simu' % ins]['V2COORD'][:, 0]
+        #     u3 = -(u1+u2)
+        #     v3 = -(v1+v2)
+
+        #     u = data['Vis2; %s_simu' % ins]['UCOORD'][:, 0]
+        #     v = data['Vis2; %s_simu' % ins]['VCOORD'][:, 0]
+
+        #     B = np.sqrt(u**2 + v**2)
+
+        #     index = data['Vis2; %s_simu' % (ins)]['STA_INDEX']
+        #     index_cp = data['cp_phi; %s_simu' % (ins)]['STA_INDEX']
+        # else:
+        if aver_polar:
+            # V2
+            # ---------------------
+            vis2_1 = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['data']
+            vis2_2 = data['Vis2; GRAVITY_%s_P%s' % (cam, 2)]['data']
+
+            vis2 = (vis2_1 + vis2_2)/2.  # Average polaristion of GRAVITY
+
+            e_vis2_1 = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['err']
+            e_vis2_2 = data['Vis2; GRAVITY_%s_P%s' % (cam, 2)]['err']
+
+            e_vis2 = (e_vis2_1**2 + e_vis2_2**2)**0.5
+
+            cp_1 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['data']
+            cp_2 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 2)]['data']
+
+            cp = (cp_1 + cp_2)/2.
+
+            e_cp_1 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['err']
+            e_cp_2 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 2)]['err']
+
+            e_cp = (e_cp_1**2 + e_cp_2**2)**0.5
+
+            u1 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['U1COORD'][:, 0]
+            u2 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['U2COORD'][:, 0]
+            v1 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['V1COORD'][:, 0]
+            v2 = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['V2COORD'][:, 0]
+            u3 = -(u1+u2)
+            v3 = -(v1+v2)
+
+            u = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['UCOORD'][:, 0]
+            v = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['VCOORD'][:, 0]
+
+            flag_vis2 = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['flag']
+            flag_cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['flag']
+
+        else:
+            vis2 = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['data']
+            e_vis2 = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['err']
+            cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, pol)]['data']
+            e_cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, pol)]['err']
+
+            u1 = data['cp_phi; GRAVITY_%s_P%s' %
+                      (cam, pol)]['U1COORD'][:, 0]
+            u2 = data['cp_phi; GRAVITY_%s_P%s' %
+                      (cam, pol)]['U2COORD'][:, 0]
+            v1 = data['cp_phi; GRAVITY_%s_P%s' %
+                      (cam, pol)]['V1COORD'][:, 0]
+            v2 = data['cp_phi; GRAVITY_%s_P%s' %
+                      (cam, pol)]['V2COORD'][:, 0]
+            u3 = -(u1+u2)
+            v3 = -(v1+v2)
+
+            u = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['UCOORD'][:, 0]
+            v = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['VCOORD'][:, 0]
+
+            flag_vis2 = data['Vis2; GRAVITY_%s_P%s' % (cam, pol)]['flag']
+            flag_cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, pol)]['flag']
+
+        wl = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['wavel'] * 1e-6
+        index = data['Vis2; GRAVITY_%s_P%s' % (cam, 1)]['STA_INDEX']
+        index_cp = data['cp_phi; GRAVITY_%s_P%s' % (cam, 1)]['STA_INDEX']
+        B = np.sqrt(u**2 + v**2)
+
+    else:
+        vis2 = data['Vis2; %s' % ins]['data']
+        e_vis2 = data['Vis2; %s' % ins]['err']
+        cp = data['cp_phi; %s' % ins]['data']
+        e_cp = data['cp_phi; %s' % ins]['err']
+
+        flag_vis2 = data['Vis2; %s' % ins]['flag']
+        flag_cp = data['cp_phi; %s' % ins]['flag']
+
+        wl = data['Vis2; %s' % (ins)]['wavel'] * 1e-6
+        u1 = data['cp_phi; %s' % ins]['U1COORD'][:, 0]
+        u2 = data['cp_phi; %s' % ins]['U2COORD'][:, 0]
+        v1 = data['cp_phi; %s' % ins]['V1COORD'][:, 0]
+        v2 = data['cp_phi; %s' % ins]['V2COORD'][:, 0]
+        u3 = -(u1+u2)
+        v3 = -(v1+v2)
+
+        u = data['Vis2; %s' % ins]['UCOORD'][:, 0]
+        v = data['Vis2; %s' % ins]['VCOORD'][:, 0]
+
+        B = np.sqrt(u**2 + v**2)
+
+        index = data['Vis2; %s' % (ins)]['STA_INDEX']
+        index_cp = data['cp_phi; %s' % (ins)]['STA_INDEX']
+
+    freq_cp, freq_vis2, bl_cp = [], [], []
+
+    for i in range(len(u1)):
+        B1 = np.sqrt(u1[i]**2+v1[i]**2)
+        B2 = np.sqrt(u2[i]**2+v2[i]**2)
+        B3 = np.sqrt(u3[i]**2+v3[i]**2)
+
+        Bmax = np.max([B1, B2, B3])
+        bl_cp.append(Bmax)
+        freq_cp.append(Bmax/wl/206264.806247)  # convert to arcsec-1
+
+    for i in range(len(u)):
+        freq_vis2.append(B[i]/wl/206264.806247)  # convert to arcsec-1
+
+    freq_cp = np.array(freq_cp)
+    freq_vis2 = np.array(freq_vis2)
+    bl_cp = np.array(bl_cp)
+
+    blname = _compute_bl_name(index, index_ref, teles_ref)
+    cpname = _compute_cp_name(index_cp, index_ref, teles_ref)
+
+    info_oifits = data['info']
+
+    dic_output = {'vis2': vis2, 'e_vis2': e_vis2,
+                  'cp': cp, 'e_cp': e_cp,
+                  'wl': wl, 'u': u, 'v': v,
+                  'u1': u1, 'u2': u2, 'u3': u3,
+                  'v1': v1, 'v2': v2, 'v3': v3, 'cpname': cpname,
+                  'teles_ref': teles_ref, 'index_ref': index_ref, 'blname': blname,
+                  'bl': B, 'bl_cp': bl_cp, 'index': index, 'index_cp': index_cp,
+                  'freq_cp': freq_cp, 'freq_vis2': freq_vis2,
+                  'flag_vis2': flag_vis2, 'flag_cp': flag_cp,
+                  }
+
+    data = dict2class(dic_output)
+    data['info'] = info_oifits
+    return data

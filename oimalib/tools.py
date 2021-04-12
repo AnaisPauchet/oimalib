@@ -34,6 +34,7 @@ def round_sci_digit(number):
     ff = str(number).split('.')[0]
     d = str(number).split('.')[1]
     d, ff = math.modf(number)
+    sig_digit = 1
     if ff == 0:
         res = str(d).split('.')[1]
         for i in range(len(res)):

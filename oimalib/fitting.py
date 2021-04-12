@@ -2,12 +2,13 @@ from multiprocessing import Pool
 
 import numpy as np
 from matplotlib import pyplot as plt
+from munch import munchify as dict2class
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
 import oimalib
 
-from . import models
+from . import complex_models
 from .fit.dpfit import leastsqFit
 from .tools import mas2rad, round_sci_digit
 
@@ -19,17 +20,17 @@ def select_model(name):
     """ Select a simple model computed in the Fourier space
     (check model.py) """
     if name == 'disk':
-        model = models.visUniformDisk
+        model = complex_models.visUniformDisk
     elif name == 'binary':
-        model = models.visBinary
+        model = complex_models.visBinary
     elif name == 'binary_res':
-        model = models.visBinary_res
+        model = complex_models.visBinary_res
     elif name == 'edisk':
-        model = models.visEllipticakUniformDisk
+        model = complex_models.visEllipticakUniformDisk
     elif name == 'debrisDisk':
-        model = models.visDebrisDisk
+        model = complex_models.visDebrisDisk
     elif name == 'clumpyDebrisDisk':
-        model = models.visClumpDebrisDisk
+        model = complex_models.visClumpDebrisDisk
     else:
         model = None
     return model
@@ -49,7 +50,7 @@ def check_params_model(param):
             isValid = False
     elif param['model'] == 'binary':
         dm = param["dm"]
-        if dm < 1:
+        if dm < 0:
             isValid = False
 
     return isValid, log
@@ -85,7 +86,7 @@ def comput_CP(X, param, model):
     V2 = model(u2, v2, wl, param)
     V3 = model(u3, v3, wl, param)
 
-    BS = V1*V2*np.conjugate(V3)
+    BS = V1*V2*V3
     CP = np.rad2deg(np.arctan2(BS.imag, BS.real))
     return CP
 
@@ -186,7 +187,7 @@ def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
     `extra_error_cp`: {float}
         Additional uncertainty of the CP (added quadraticaly),\n
     `err_scale`: {float}
-        Scaling factor applied on the CP uncertainties usualy used to 
+        Scaling factor applied on the CP uncertainties usualy used to
         include the non-independant CP correlation,\n
     `verbose`: {boolean}
         If True, display useful information about the data selection,\n
@@ -370,14 +371,14 @@ def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
                        normalizeErrors=False, fitCP=True, onlyCP=False,
                        ymin=0, ymax=3):
     """
-    Compute a 1D reduced chi2 curve to determine the pessimistic (fully correlated) 
+    Compute a 1D reduced chi2 curve to determine the pessimistic (fully correlated)
     uncertainties on one parameter (name_param).
 
     Parameters:
     -----------
 
     `obs`: {tuple}
-        Tuple containing all the selected data fromOiClass2Obs function,\n
+        Tuple containing all the selected data from format_obs function,\n
     `name_param` {str}:
         Name of the parameter to compute the chi2 curve,\n
     `params`: {dict}
@@ -438,9 +439,9 @@ def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
         right_res = right_curve(chi2r_m+1)
         dr1_r = abs(fitted_param - left_res)
         dr2_r = abs(fitted_param - right_res)
-        dr1_r, dig = round_sci_digit(dr1_r)
-        dr2_r = round_sci_digit(dr2_r)[0]
-        fitted_param = float(np.round(fitted_param, dig))
+        # dr1_r, dig = round_sci_digit(dr1_r)
+        # dr2_r = round_sci_digit(dr2_r)[0]
+        fitted_param = float(np.round(fitted_param, 2))
         print('sig_chi2: %s = %s - %s + %s' %
               (name_param, fitted_param, dr1_r, dr2_r))
     except ValueError:
@@ -452,8 +453,8 @@ def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
 
     errors_chi2 = np.mean([dr1_r, dr2_r])
 
-    fit_e_theta, scidigit = round_sci_digit(fit_e_theta)
-    fit_theta = float(np.round(fit_theta, scidigit))
+    # fit_e_theta, scidigit = round_sci_digit(fit_e_theta)
+    fit_theta = float(np.round(fit_theta, 3))
 
     plt.figure()
     plt.plot(array_params[c_left], l_chi2r[c_left],
@@ -476,108 +477,6 @@ def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
     return fit, errors_chi2
 
 
-def plot_model(inputdata, param, extra_error_v2=0, extra_error_cp=0, err_scale=1,
-               d_freedom=1, v2_min=None, v2_max=1.1, cp_max=None, unit='m',
-               display=True):
-    """ Plot the model compared to the data (V2 and CP) and the associated 
-    residuals. """
-
-    d = oimalib.load(inputdata)
-
-    e_vis2 = np.sqrt(d.e_vis2**2 + extra_error_v2**2)
-    e_cp = np.sqrt(d.e_cp**2 + extra_error_cp**2) * err_scale
-
-    model_target = select_model(param['model'])
-
-    u, v, wl = d.u, d.v, d.wl
-
-    mod_v2 = comput_V2([u, v, wl], param, model_target)
-
-    u1, u2, v1, v2 = d.u1, d.u2, d.v1, d.v2
-    u3, v3 = u1+u2, v1+v2
-
-    X = [u1, u2, u3, v1, v2, v3, wl]
-    mod_cp = comput_CP(X, param, model_target)
-
-    chi2_cp = np.sum(((d.cp - mod_cp)**2/(e_cp)**2)) / \
-        (len(e_cp) - (d_freedom - 1))
-    chi2_vis2 = np.sum(((d.vis2 - mod_v2)**2/(e_vis2)**2)) / \
-        (len(e_vis2) - (d_freedom - 1))
-
-    chi2 = (np.sum(((d.cp - mod_cp)**2/(e_cp)**2)) +
-            np.sum(((d.vis2 - mod_v2)**2/(e_vis2)**2))) / (len(e_cp) + len(e_vis2) - (d_freedom - 1))
-
-    res_vis2 = (mod_v2 - d.vis2)/e_vis2
-    res_cp = (mod_cp - d.cp)/e_cp
-
-    f_unit = {'m': 1,
-              'lambda': 1/d.wl/1e6,
-              'arcsec': 1/d.wl / ((3600 * 180)/np.pi)}
-    label_unit = {'m': 'm',
-                  'lambda': r'M$\lambda$',
-                  'arcsec': r'arcsec$^{-1}$'}
-
-    x_vis2 = d.bl * f_unit[unit]
-    x_cp = d.bl_cp * f_unit[unit]
-
-    if display:
-        fig = plt.figure(constrained_layout=True, figsize=(11, 4))
-        axd = fig.subplot_mosaic([['vis', 'cp'], ['res_vis2', 'res_cp']],
-                                 gridspec_kw={'width_ratios': [2, 2],
-                                              'height_ratios': [3, 1]})
-
-        axd['res_vis2'].sharex(axd['vis'])
-        axd['res_cp'].sharex(axd['cp'])
-
-        axd['vis'].errorbar(x_vis2, d.vis2, yerr=e_vis2, **
-                            err_pts_style, color='#3d84a8')
-        axd['vis'].plot(x_vis2, mod_v2, 'x', color='#f6416c', zorder=100, ms=10,
-                        label='model ($\chi^2_r=%2.1f$)' % chi2_vis2)
-        axd['vis'].legend()
-
-        if v2_min is not None:
-            axd['vis'].set_ylim(v2_min, v2_max)
-        axd['vis'].grid(alpha=.2)
-        axd['vis'].set_ylabel(r'V$^2$')
-
-        axd['res_vis2'].plot(x_vis2, res_vis2, '.', color='#3d84a8')
-        axd['res_vis2'].axhspan(-1, 1, alpha=.2, color='#418fde')
-        axd['res_vis2'].axhspan(-2, 2, alpha=.2, color='#8bb8e8')
-        axd['res_vis2'].axhspan(-3, 3, alpha=.2, color='#c8d8eb')
-        if res_vis2.max() > 5:
-            res_mas = res_vis2.max()
-        else:
-            res_mas = 5
-        axd['res_cp'].set_ylim(-res_mas, res_mas)
-        axd['res_vis2'].set_ylim(-5, 5)
-        axd['res_vis2'].set_ylabel('Residual [$\sigma$]')
-        axd['res_vis2'].set_xlabel('Sp. Freq. [%s]' % label_unit[unit])
-
-        axd['cp'].errorbar(x_cp, d.cp, yerr=e_cp, **
-                           err_pts_style, color='#2ca02c')
-        axd['cp'].plot(x_cp, mod_cp, 'x', color='#f6416c', zorder=100, ms=10,
-                       label='model ($\chi^2_r=%2.1f$)' % chi2_cp)
-
-        if cp_max is not None:
-            axd['cp'].set_ylim(-cp_max, cp_max)
-        axd['cp'].grid(alpha=.2)
-        axd['cp'].set_ylabel('Closure phases [deg]')
-        axd['cp'].legend()
-
-        axd['res_cp'].plot(x_cp, res_cp, '.', color='#1e7846')
-        axd['res_cp'].axhspan(-1, 1, alpha=.3, color='#28a16c')  # f5c893
-        axd['res_cp'].axhspan(-2, 2, alpha=.2, color='#28a16c')
-        axd['res_cp'].axhspan(-3, 3, alpha=.1, color='#28a16c')
-        if res_cp.max() > 5:
-            res_mas = res_cp.max()
-        else:
-            res_mas = 5
-        axd['res_cp'].set_ylim(-res_mas, res_mas)
-        axd['res_cp'].set_ylabel('Residual [$\sigma$]')
-        axd['res_cp'].set_xlabel('Sp. Freq. [%s]' % label_unit[unit])
-    return mod_v2, mod_cp, chi2
-
-
 def smartfit(obs, first_guess, doNotFit=None, fitOnly=None, follow=None,
              multiproc=False, ftol=1e-4, epsfcn=1e-7,
              normalizeErrors=False, scale_err=1,
@@ -589,7 +488,7 @@ def smartfit(obs, first_guess, doNotFit=None, fitOnly=None, follow=None,
     -----------
 
     obs: {tuple}
-        Tuple containing all the selected data fromOiClass2Obs function.\n
+        Tuple containing all the selected data from format_obs function.\n
     first_guess: {dict}
         Parameters of the model.\n
     fitOnly: {list}
@@ -645,3 +544,95 @@ def smartfit(obs, first_guess, doNotFit=None, fitOnly=None, follow=None,
                       verbose=verbose, ftol=ftol, epsfcn=epsfcn)
 
     return lfit
+
+
+def _compute_uvcoord(data):
+    nwl = len(data.wl)
+    nbl = data.vis2.shape[0]
+    ncp = data.cp.shape[0]
+
+    u_data = np.zeros([nbl, nwl])
+    v_data = np.zeros_like(u_data)
+
+    u1_data = np.zeros([ncp, nwl])
+    u2_data = np.zeros_like(u1_data)
+    u3_data = np.zeros_like(u1_data)
+    v1_data = np.zeros_like(u1_data)
+    v2_data = np.zeros_like(u1_data)
+    v3_data = np.zeros_like(u1_data)
+
+    for i in range(nbl):
+        u_data[i] = np.array([data.u[i]]*nwl)
+        v_data[i] = np.array([data.v[i]]*nwl)
+    u_data, v_data = u_data.flatten(), v_data.flatten()
+
+    for i in range(ncp):
+        u1_data[i] = np.array([data.u1[i]]*nwl)
+        u2_data[i] = np.array([data.u2[i]]*nwl)
+        u3_data[i] = np.array([data.u3[i]]*nwl)
+        v1_data[i] = np.array([data.v1[i]]*nwl)
+        v2_data[i] = np.array([data.v2[i]]*nwl)
+        v3_data[i] = np.array([data.v3[i]]*nwl)
+
+    u1_data, v1_data = u1_data.flatten(), v1_data.flatten()
+    u2_data, v2_data = u2_data.flatten(), v2_data.flatten()
+    u3_data, v3_data = u3_data.flatten(), v3_data.flatten()
+
+    output = dict2class({'u': u_data, 'v': v_data, 'u1': u1_data,
+                         'v1': v1_data, 'u2': u2_data, 'v2': v2_data,
+                         'u3': u3_data, 'v3': v3_data})
+    return output
+
+
+def format_obs(data, use_flag=True, input_rad=False,
+               verbose=True):
+    nwl = len(data.wl)
+    nbl = data.vis2.shape[0]
+    ncp = data.cp.shape[0]
+
+    vis2_data = data.vis2.flatten()
+    e_vis2_data = data.e_vis2.flatten()
+    flag_V2 = data.flag_vis2.flatten()
+
+    cp_data = data.cp.flatten()
+    e_cp_data = data.e_cp.flatten()
+    flag_CP = data.flag_cp.flatten()
+    if input_rad:
+        cp_data = np.rad2deg(cp_data)
+        e_cp_data = np.rad2deg(e_cp_data)
+
+    if not use_flag:
+        flag_V2 = [False]*len(vis2_data)
+        flag_CP = [False]*len(cp_data)
+
+    uv = _compute_uvcoord(data)
+
+    wl_data = np.array(list(data.wl)*nbl)
+    wl_data_cp = np.array(list(data.wl)*ncp)
+
+    obs = []
+    for i in range(nbl*nwl):
+        if not flag_V2[i]:
+            tmp = [uv.u[i], uv.v[i], wl_data[i]]
+            typ = 'V2'
+            obser = vis2_data[i]
+            err = e_vis2_data[i]
+            obs.append([tmp, typ, obser, err])
+    N_v2 = len(obs)
+
+    for i in range(ncp*nwl):
+        if not flag_CP[i]:
+            tmp = [uv.u1[i], uv.u2[i], uv.u3[i], uv.v1[i], uv.v2[i],
+                   uv.v3[i], wl_data_cp[i]]
+            typ = 'CP'
+            obser = cp_data[i]
+            err = e_cp_data[i]
+            obs.append([tmp, typ, obser, err])
+    N_cp = len(obs) - N_v2
+
+    Obs = np.array(obs)
+
+    if verbose:
+        print('\nTotal # of data points: %i (%i V2, %i CP)' %
+              (len(Obs), N_v2, N_cp))
+    return Obs

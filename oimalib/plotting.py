@@ -11,11 +11,9 @@ Set of function to plot oi data, u-v plan, models, etc.
 
 import numpy as np
 from matplotlib import pyplot as plt
-from termcolor import cprint
+from matplotlib.colors import PowerNorm
 
-from oimalib.fitting import comput_CP, comput_V2, select_model
-
-# from .tools import rad2mas
+from oimalib.tools import rad2mas
 
 dic_color = {'A0-B2': '#928a97',  # SB
              'A0-D0': '#7131CC',
@@ -40,88 +38,140 @@ dic_color = {'A0-B2': '#928a97',  # SB
              'G1-K0': '#ffd100',
              }
 
-err_pts_style = {'linestyle': "None", 'capsize': 1,  # 'ecolor': '#364f6b', 'mec':'#364f6b',
-                 'marker': '.', 'elinewidth': 0.5, 'alpha': 1, 'ms': 6}
+err_pts_style = {'linestyle': "None", 'capsize': 1, 'ecolor': '#9e978e',
+                 'marker': '.', 'elinewidth': 0.5, 'alpha': 1, 'ms': 4}
 
 
-def _peak_color_bl(base):
-    if base in dic_color.keys():
-        p_color = dic_color[base]
+def _update_color_bl(tab):
+    data = tab[0]
+    array_name = data.info['Array']
+    nbl_master = len(set(data.blname))
+
+    if array_name == 'CHARA':
+        unknown_color = plt.cm.turbo(np.linspace(0, 1, nbl_master))
     else:
-        station = base.split('-')
-        base_new = '%s-%s' % (station[1], station[0])
-        if base_new in dic_color.keys():
-            p_color = dic_color[base_new]
-        else:
-            p_color = 'tab:blue'
-    return p_color
+        unknown_color = plt.cm.Set2(np.linspace(0, 1, 8))
 
-
-def _index_2_tel(tab):
-    """
-    Make the match between index, telescope stations and color references.
-    """
-    dic_index = {}
-    for data in tab:
-        nbl = len(data.index)
-        for i in range(len(data.index_ref)):
-            ind = data.index_ref[i]
-            tel = data.teles_ref[i]
-            if ind not in dic_index.keys():
-                dic_index[ind] = tel
-
-    l_base = []
+    i_cycle = 0
     for j in range(len(tab)):
         data = tab[j]
-        nbl = len(data.index)
+        nbl = data.vis2.shape[0]
         for i in range(nbl):
-            base = '%s-%s' % (dic_index[data.index[i][0]],
-                              dic_index[data.index[i][1]])
-            base2 = '%s-%s' % (dic_index[data.index[i][1]],
-                               dic_index[data.index[i][0]])
-            if (base2 in l_base):
-                base = base2
-
-            l_base.append(base)
-
-    return dic_index, list(set(l_base))
+            base = data.blname[i]
+            if base not in dic_color.keys():
+                dic_color[base] = unknown_color[i_cycle]
+                i_cycle += 1
+    return dic_color
 
 
-def plot_oidata(tab, use_flag=True, cmax=200, v2min=0, v2max=1.2, model=False, param=None, fit=None,
-                cond_uncer=False, rel_max=None, cond_wl=False, wl_min=None, wl_max=None, log=False,
-                is_nrm=False, extra_error_v2=0, extra_error_cp=0, err_scale_cp=1, err_scale_v2=1):
+def _create_match_tel(data):
+    dic_index = {}
+    for i in range(len(data.index_ref)):
+        ind = data.index_ref[i]
+        tel = data.teles_ref[i]
+        if ind not in dic_index.keys():
+            dic_index[ind] = tel
+    return dic_index
+
+
+def check_closed_triplet(data, i=0):
+    U = [data.u1[i], data.u2[i], data.u3[i], data.u1[i]]
+    V = [data.v1[i], data.v2[i], data.v3[i], data.v1[i]]
+
+    triplet = data.cpname[i]
+    fig = plt.figure(figsize=[5, 4.5])
+    plt.plot(U, V, label=triplet)
+    plt.legend()
+    plt.plot(0, 0, 'r+')
+    plt.grid(alpha=.2)
+    plt.xlabel('U [m]')
+    plt.ylabel('V [m]')
+    plt.tight_layout()
+    return fig
+
+
+def _flat_v2_data(data, use_flag=True):
+    """ Flatten data V2 and apply flag (for plot_residuals()). """
+    npts = len(data.freq_vis2.flatten())
+    flag_vis2 = [True]*npts
+    if use_flag:
+        flag_vis2 = np.invert(data.flag_vis2.flatten())
+
+    freq_vis2 = data.freq_vis2.flatten()[flag_vis2]
+    vis2 = data.vis2.flatten()[flag_vis2]
+    e_vis2 = data.e_vis2.flatten()[flag_vis2]
+    wl = np.array([data.wl for i in range(len(data.vis2))]
+                  ).flatten()[flag_vis2]
+    return freq_vis2, vis2, e_vis2, wl, flag_vis2
+
+
+def _flat_cp_data(data, use_flag=True):
+    """ Flatten data CP and apply flag (for plot_residuals()). """
+    npts = len(data.freq_cp.flatten())
+    flag_cp = [True]*npts
+    if use_flag:
+        flag_cp = np.invert(data.flag_cp.flatten())
+    freq_cp = data.freq_cp.flatten()[flag_cp]
+    cp = data.cp.flatten()[flag_cp]
+    e_cp = data.e_cp.flatten()[flag_cp]
+    wl = np.array([data.wl for i in range(len(data.cp))]).flatten()[flag_cp]
+    return freq_cp, cp, e_cp, wl, flag_cp
+
+
+def _plot_uvdata_coord(tab, ax=None, rotation=0):
+    """ Plot u-v coordinated of a bunch of data (see `plot_uv()`). """
+    if type(tab) != list:
+        tab = [tab]
+
+    dic_color = _update_color_bl(tab)
+
+    list_bl = []
+    for data in tab:
+        nbl = data.vis2.shape[0]
+        for bl in range(nbl):
+            flag = np.invert(data.flag_vis2[bl])
+            u = data.u[bl]/data.wl[flag]/1e6
+            v = data.v[bl]/data.wl[flag]/1e6
+            base, label = data.blname[bl], ''
+            if base not in list_bl:
+                label = base
+                list_bl.append(base)
+            p_color = dic_color[base]
+            angle = np.deg2rad(rotation)
+            um = u*np.cos(angle) - v*np.sin(angle)
+            vm = u*np.sin(angle) + v*np.cos(angle)
+            ax.plot(um, vm, color=p_color, label=label, marker='o', ms=4)
+            ax.plot(-um, -vm, ms=4, color=p_color, marker='o')
+    return None
+
+
+def plot_oidata(tab, use_flag=True, mod_v2=None, mod_cp=None,
+                cp_max=200, v2min=0, v2max=1.2, log=False, is_nrm=False,
+                ms_model=2):
     """
-    Plot the interferometric data (and the model if required), splitted in V2 and CP and restreined if different way.
+    Plot the interferometric data (and the model if required).
 
     Parameters:
     -----------
-
-    `tab`: {list}
-        list containing of data from load() function (size corresponding to the number of files),\n
-    `use_flag`: {boolean}
-        If True, use flag from the original oifits file,\n
-    `cp_born`: {float}
+    `tab` {list}:
+        list containing of data from load() function (size corresponding to the
+        number of files),\n
+    `use_flag` {boolean}:
+        If True, use flag from the oifits file (selected if select_data()
+        was used before),\n
+    `mod_v2`, `mod_cp` {array}:
+        V2 and CP model computed from grid (`compute_grid_model()`) or
+        the analytical model (`compute_geom_model()`),\n
+    `cp_max` {float}:
         Limit maximum along Y-axis of CP data plot,\n
-    `v2max`: {float}
+    `v2min`, `v2max` {float}:
         Limit maximum along Y-axis of V2 data plot,\n
-    `model`: {boolean}
-        If True, display the model associated to the param dictionnary,\n
-    `param`: {dict}
-        Dictionnary containing model parameters,\n
-    `fit`: {dict}
-        Dictionnary containing the result of the fit (Smartfit function),\n
-    `cond_uncer`: {boolean}
-        If True, select the best data according their relative uncertainties (rel_max),\n
-    `rel_max`: {float}
-        if cond_uncer, maximum sigma uncertainties allowed [%],\n
-    `cond_wl`: {boolean}
-        If True, apply wavelenght restriction between wl_min and wl_max,\n
-    `wl_min`, wl_max: {float}
-        If cond_wl, limits of the wavelength domain [µm],\n
-    `log`: {boolean}
-        If True, display the Y-axis of the V2 plot in log scale.\n
+    `log` {boolean}:
+        If True, display the Y-axis of the V2 plot in log scale,\n
+    `is_nrm` {boolean}:
+        If True, data come from NRM data.
     """
-    global dic_color
+    # global dic_color
 
     if type(tab) == list:
         data = tab[0]
@@ -129,8 +179,9 @@ def plot_oidata(tab, use_flag=True, cmax=200, v2min=0, v2max=1.2, model=False, p
         data = tab
         tab = [tab]
 
-    dic_ind = _index_2_tel(tab)[0]
+    dic_color = _update_color_bl(tab)
 
+    array_name = data.info['Array']
     l_fmin, l_fmax = [], []
 
     for data in tab:
@@ -142,24 +193,14 @@ def plot_oidata(tab, use_flag=True, cmax=200, v2min=0, v2max=1.2, model=False, p
     fmin = np.array(l_fmin).min()
     fmax = np.array(l_fmax).max()
 
-    if model:
-        model_target = select_model(param['model'])
-        if fit is not None:
-            chi2 = fit['chi2']
-            label = 'Model %s ($\chi^2_{red}$ = %2.1f)' % (param['model'],
-                                                           chi2)
-        else:
-            label = 'Model %s' % param['model']
-
-    n_V2_rest = 0
+    ncp_master = len(set(data.cpname))
 
     fig = plt.figure(figsize=(8, 6))
-    ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan=2)
+    ax1 = plt.subplot2grid((5, 1), (0, 0), rowspan=3)
 
     list_bl = []
-
-    ncolor = 0
-
+    # PLOT VIS2 DATA AND MODEL IF ANY (mod_v2)
+    # ----------------------------------------
     for j in range(len(tab)):
         data = tab[j]
         nwl = len(data.wl)
@@ -170,89 +211,76 @@ def plot_oidata(tab, use_flag=True, cmax=200, v2min=0, v2max=1.2, model=False, p
             else:
                 sel_flag = [True]*nwl
 
-            if cond_uncer:
-                vis2 = data.vis2[i, :]
-                e_vis2 = data.e_vis2[i]
-                rel_err = e_vis2/vis2
-                sel_err = (rel_err <= rel_max*1e-2)
-            else:
-                sel_err = np.array([True]*nwl)
+            freq_vis2 = data.freq_vis2[i][sel_flag]
+            vis2 = data.vis2[i][sel_flag]
+            e_vis2 = data.e_vis2[i][sel_flag]
+            base, label = data.blname[i], ''
 
-            if cond_wl:
-                sel_wl = (data.wl >= wl_min*1e-6) & (data.wl < wl_max*1e-6)
-            else:
-                sel_wl = np.array([True]*nwl)
-
-            sel_neg = data.vis2[i, :] > 0
-
-            cond = sel_flag & sel_err & sel_wl & sel_neg
-
-            freq_vis2 = data.freq_vis2[i][cond]
-            vis2 = data.vis2[i][cond]
-            e_vis2 = data.e_vis2[i][cond]
-            n_V2_rest += len(vis2)
-
-            base = '%s-%s' % (dic_ind[data.index[i][0]],
-                              dic_ind[data.index[i][1]])
-            base2 = '%s-%s' % (dic_ind[data.index[i][1]],
-                               dic_ind[data.index[i][0]])
-            if not ((base or base2) in list_bl):
-                bl1 = base
+            if base not in list_bl:
+                label = base
                 list_bl.append(base)
-                list_bl.append(base2)
-            else:
-                bl1 = ''
-
-            e_vis2 = np.sqrt(e_vis2**2 + extra_error_v2**2) * err_scale_v2
-
-            ms_model = 5
-
-            p_color = _peak_color_bl(base)
 
             if is_nrm:
+                p_color = 'tab:blue'
                 ax1.errorbar(freq_vis2, vis2, yerr=e_vis2, ecolor='lightgray',
                              color=p_color, marker='.', ms=6, elinewidth=1)
             else:
-                ax1.plot(freq_vis2, vis2, color=p_color,
-                         ls='-', lw=1, label=bl1)
+                p_color = dic_color[base]
+                ebar = ax1.plot(freq_vis2, vis2, color=p_color,
+                                ls='-', lw=1, label=label)
                 ax1.fill_between(freq_vis2, vis2-e_vis2, vis2+e_vis2,
                                  color=p_color, alpha=.3)
 
-            if model:
-                u, v, wl = data.u[i], data.v[i], data.wl[cond]
-                mod = comput_V2([u, v, wl], param, model_target)
-                # in_uncer = (abs(vis2 - mod) <= 1*e_vis2)
-                if is_nrm:
-                    ax1.plot(freq_vis2, mod, marker='x',
-                             color='crimson', alpha=.7, zorder=100,
-                             ms=ms_model)
-                else:
-                    ax1.plot(freq_vis2, mod, 'k-',
-                             alpha=.7, zorder=100, lw=1, ms=ms_model)
-                    # ax1.plot(freq_vis2[~in_uncer], mod[~in_uncer], 'r-',
-                    #          alpha=.7, zorder=100, lw=1, ms=ms_model)
+            if mod_v2 is not None:
+                mod = mod_v2[i][sel_flag]
+                # if is_nrm:
+                #     ax1.plot(freq_vis2, mod, marker='x', color='k',
+                #              alpha=.7, zorder=100,
+                #              ms=ms_model)
+                # else:
+                ax1.plot(freq_vis2, mod, marker='x', color='k',
+                         alpha=.7, zorder=100, lw=1, ms=ms_model,
+                         ls='')
 
-            ncolor += 1
-
-    if model:
-        if is_nrm:
-            ax1.plot(-1, -1, 'x', color='crimson', label=label)
-        else:
-            ax1.plot(-1, -1, 'k-', color='gray', label=label)
+    if mod_v2 is not None:
+        # if is_nrm:
+        #     ax1.plot(-1, -1, 'x', color='crimson', label='model')
+        # else:
+        ax1.plot(-1, -1, marker='x', color='k', alpha=.7,
+                 zorder=100, lw=1, ms=ms_model, ls='',
+                 label='model')
 
     if log:
         ax1.set_yscale('log')
         ax1.set_ylim(v2min, v2max)
     else:
         ax1.set_ylim(v2min, v2max)
-    ax1.set_xlim(fmin-2, fmax+2)
+
+    offset = 0
+    if data.info['Array'] == 'CHARA':
+        offset = 150
+    ax1.set_xlim(fmin-2, fmax+2+offset)
     ax1.legend(fontsize=7)
     ax1.set_ylabel(r'V$^2$', fontsize=12)
     ax1.grid(alpha=.3)
 
-    ax2 = plt.subplot2grid((3, 1), (2, 0))
+    # PLOT CP DATA AND MODEL IF ANY (mod_cp)
+    # --------------------------------------
+    ax2 = plt.subplot2grid((5, 1), (3, 0), rowspan=2)
+    if not is_nrm:
+        if array_name == 'CHARA':
+            fontsize = 5
+            ax2.set_prop_cycle('color', plt.cm.turbo(
+                np.linspace(0, 1, ncp_master)))
+        else:
+            fontsize = 7
+            ax2.set_prop_cycle('color', plt.cm.Set2(np.linspace(0, 1, 8)))
+        color_cp = None
+    else:
+        color_cp = 'tab:blue'
 
-    N_cp_rest = 0
+    color_cp_dic = {}
+    list_triplet = []
     for j in range(len(tab)):
         data = tab[j]
         ncp = data.cp.shape[0]
@@ -263,364 +291,102 @@ def plot_oidata(tab, use_flag=True, cmax=200, v2min=0, v2max=1.2, model=False, p
             else:
                 sel_flag = np.array([True]*nwl)
 
-            if cond_uncer:
-                cp = data.cp[i]
-                e_cp = data.e_cp[i]
-                rel_err = e_cp/cp
-                sel_err = (abs(rel_err) < rel_max*1e-2)
-            else:
-                sel_err = np.array([True]*nwl)
+            freq_cp = data.freq_cp[i][sel_flag]
+            cp = data.cp[i][sel_flag]
+            e_cp = data.e_cp[i][sel_flag]
 
-            if cond_wl:
-                sel_wl = (data.wl >= wl_min*1e-6) & (data.wl < wl_max*1e-6)
-            else:
-                sel_wl = np.array([True]*nwl)
+            dic_index = _create_match_tel(data)
+            b1 = dic_index[data.index_cp[i][0]]
+            b2 = dic_index[data.index_cp[i][1]]
+            b3 = dic_index[data.index_cp[i][2]]
+            triplet = '%s-%s-%s' % (b1, b2, b3)
 
-            cond = sel_flag & sel_err & sel_wl
+            label = ''
+            if triplet not in list_triplet:
+                label = triplet
+                list_triplet.append(triplet)
 
-            freq_cp = data.freq_cp[i][cond]
-            cp = data.cp[i][cond]
-            e_cp = data.e_cp[i][cond]
-            e_cp = np.sqrt(e_cp**2 + extra_error_cp**2) * err_scale_cp
+            if triplet in color_cp_dic.keys():
+                color_cp = color_cp_dic[triplet]
 
-            N_cp_rest += len(cp)
-            ax2.errorbar(freq_cp, cp, yerr=e_cp,
-                         color='#3d84a8', **err_pts_style)
+            ebar = ax2.errorbar(freq_cp, cp, yerr=e_cp, label=label,
+                                color=color_cp, **err_pts_style)
+            if triplet not in color_cp_dic.keys():
+                color_cp_dic[triplet] = ebar[0].get_color()
 
-            if model:
-                u1, u2, u3 = data.u1[i], data.u2[i], data.u3[i]
-                v1, v2, v3 = data.v1[i], data.v2[i], data.v3[i]
-                wl2 = data.wl[cond]
-                X = [u1, u2, u3, v1, v2, v3, wl2]
-                mod_cp = comput_CP(X, param, model_target)
-                ax2.plot(freq_cp, mod_cp, marker='x', ls='',
-                         color='crimson', ms=5, zorder=100, alpha=.7)
+            if mod_cp is not None:
+                mod = mod_cp[i][sel_flag]
+                ax2.plot(freq_cp, mod, marker='x', ls='',
+                         color='k', ms=ms_model, zorder=100,
+                         alpha=.7)
+
+    if not is_nrm:
+        ax2.legend(fontsize=fontsize)
     ax2.set_ylabel(r'CP [deg]', fontsize=12)
     ax2.set_xlabel(r'Sp. Freq [arcsec$^{-1}$]', fontsize=12)
-    ax2.set_ylim(-cmax, cmax)
-    ax2.set_xlim(fmin-2, fmax+2)
+    ax2.set_ylim(-cp_max, cp_max)
+    ax2.set_xlim(fmin-2, fmax+2+offset)
     ax2.grid(alpha=.2)
     plt.tight_layout()
     plt.show(block=False)
-
     return fig
 
 
-def plot_uv(tab, bmax=150, use_flag=False, cond_uncer=False, cond_wl=False,
-            wl_min=None, wl_max=None, rel_max=None):
+def plot_uv(tab, bmax=150, rotation=0):
     """
     Plot the u-v coverage.
 
     Parameters:
     -----------
 
-    tab: {list}
-        list containing of data from OiFile2Class function (size corresponding to the number of files).\n
-    bmax: {float}
-        Limits of the plot [Mlambda].\n
-    use_flag: {boolean}
-        If True, use flag from the original oifits file.\n
-    cond_uncer: {boolean}
-        If True, select the best data according their relative uncertainties (rel_max).\n
-    rel_max: {float}
-        if cond_uncer, maximum sigma uncertainties allowed [%].\n
-    cond_wl: {boolean}
-        If True, apply wavelenght restriction between wl_min and wl_max.\n
-    wl_min, wl_max: {float}
-        If cond_wl, limits of the wavelength domain [µm].\n
+    `tab` {list}:
+        list containing of data from OiFile2Class function (size corresponding to the number of files),\n
+    `bmax` {float}:
+        Limits of the plot [Mlambda],\n
     """
-    global dic_color
-
     if type(tab) == list:
-        data = tab[0]
+        wl_ref = np.mean(tab[0].wl) * 1e6
     else:
-        data = tab
-        tab = [tab]
+        wl_ref = np.mean(tab.wl) * 1e6
 
-    nwl = len(data.wl)
-    nbl = data.vis2.shape[0]
+    bmax = bmax/wl_ref
 
-    list_bl = []
-
-    dic_ind = _index_2_tel(tab)[0]
-
-    if cond_wl:
-        try:
-            float(wl_min)
-        except TypeError:
-            cprint('-'*38, 'red')
-            cprint('Warnings: wavelengths limits not set!', 'red')
-            cprint('-'*38, 'red')
-
-    plt.figure(figsize=(6.5, 6))
+    fig = plt.figure(figsize=(6.5, 6))
     ax = plt.subplot(111)
-    l_base2 = []
-    for j in range(len(tab)):
-        data = tab[j]
-        for i in range(nbl):
-            if use_flag:
-                sel_flag = np.invert(data.flag_vis2[i])
-            else:
-                sel_flag = [True]*nwl
 
-            if cond_uncer:
-                vis2 = data.vis2[i, :]
-                e_vis2 = data.e_vis2[i]
-                rel_err = e_vis2/vis2
-                sel_err = (rel_err <= rel_max*1e-2)
-            else:
-                sel_err = np.array([True]*nwl)
+    ax2 = ax.twinx()
+    ax3 = ax.twiny()
 
-            if cond_wl:
-                try:
-                    sel_wl = (data.wl >= wl_min*1e-6) & (data.wl < wl_max*1e-6)
-                except TypeError:
-                    sel_wl = np.array([True]*nwl)
+    _plot_uvdata_coord(tab, ax=ax, rotation=rotation)
 
-            else:
-                sel_wl = np.array([True]*nwl)
-
-            cond = sel_flag & sel_err & sel_wl
-
-            U = data.u[i]/data.wl/1e6
-            V = data.v[i]/data.wl/1e6
-
-            u = U[cond]
-            v = V[cond]
-
-            base = '%s-%s' % (dic_ind[data.index[i][0]],
-                              dic_ind[data.index[i][1]])
-            base2 = '%s-%s' % (dic_ind[data.index[i][1]],
-                               dic_ind[data.index[i][0]])
-            l_base2.append(base)
-            if not (base or base2) in list_bl:
-                bl1 = base
-                list_bl.append(base)
-            else:
-                bl1 = ''
-
-            try:
-                plt.scatter(
-                    u, v, s=15, c=dic_color[base], label=bl1, marker='o')
-                plt.scatter(-u, -v, s=15, c=dic_color[base], marker='o')
-            except Exception:
-                station = base.split('-')
-                base_new = '%s-%s' % (station[1], station[0])
-                try:
-                    c1, c2 = dic_color[base_new], dic_color[base_new]
-                except KeyError:
-                    bl1 = ''
-                    c1, c2 = '#00adb5', '#fc5185'
-                plt.scatter(u, v, s=15, c=c1, label=bl1, marker='o')
-                plt.scatter(-u, -v, s=15, c=c2, marker='o')
-            ax.patch.set_facecolor('#f7f9fc')
-            plt.axis([-bmax, bmax, -bmax, bmax])
-            plt.grid(alpha=.5, linestyle=':')
-            plt.vlines(0, -bmax, bmax, linewidth=1, color='gray', alpha=0.05)
-            plt.hlines(0, -bmax, bmax, linewidth=1, color='gray', alpha=0.05)
-            plt.xlabel(r'U [M$\lambda$]')
-            plt.ylabel(r'V [M$\lambda$]')
-            if bl1 != '':
-                plt.legend(fontsize=9)
-            plt.subplots_adjust(top=0.97,
-                                bottom=0.09,
-                                left=0.11,
-                                right=0.975,
-                                hspace=0.2,
-                                wspace=0.2)
+    ax.patch.set_facecolor('#f7f9fc')
+    ax.set_xlim([-bmax, bmax])
+    ax.set_ylim([-bmax, bmax])
+    ax2.set_ylim([-bmax*wl_ref, bmax*wl_ref])
+    ax3.set_xlim([-bmax*wl_ref, bmax*wl_ref])
+    plt.grid(alpha=.5, linestyle=':')
+    ax.axvline(0, linewidth=1, color='gray', alpha=0.2)
+    ax.axhline(0, linewidth=1, color='gray', alpha=0.2)
+    ax.set_xlabel(r'U [M$\lambda$]')
+    ax.set_ylabel(r'V [M$\lambda$]')
+    ax2.set_ylabel("V [m] - East", color='#007a59')
+    ax3.set_xlabel("U [m] (%2.2f µm) - North" % wl_ref, color='#007a59')
+    ax2.tick_params(axis='y', colors='#007a59')
+    ax3.tick_params(axis='x', colors='#007a59')
+    ax.legend(fontsize=7)
+    plt.subplots_adjust(top=0.97, bottom=0.09,
+                        left=0.11, right=0.93,
+                        hspace=0.2, wspace=0.2)
+    plt.tight_layout()
     plt.show(block=False)
-    return dic_color
+    return fig
 
 
-def _compute_v2_mod(data, param):
-    model_target = select_model(param['model'])
-
-    l_mod_v2 = np.zeros_like(data.vis2)
-    for i in range(len(data.u)):
-        u, v, wl = data.u[i], data.v[i], data.wl
-        mod = comput_V2([u, v, wl], param, model_target)
-        l_mod_v2[i, :] = mod
-    mod_v2 = l_mod_v2.flatten()
-
-    return mod_v2
-
-
-def _compute_cp_mod(data, param):
-    model_target = select_model(param['model'])
-    l_mod_cp = np.zeros_like(data.cp)
-    for i in range(len(data.u1)):
-        u1, u2, u3 = data.u1[i], data.u2[i], data.u3[i]
-        v1, v2, v3 = data.v1[i], data.v2[i], data.v3[i]
-        wl2 = data.wl
-        X = [u1, u2, u3, v1, v2, v3, wl2]
-        tmp = comput_CP(X, param, model_target)
-        l_mod_cp[i, :] = tmp
-    mod_cp = l_mod_cp.flatten()
-    return mod_cp
-
-
-def _select_data_v2(data, use_flag=True, cond_wl=False, wl_bounds=None,
-                    cond_uncer=False, rel_max=None):
-    """ Select VIS2 according to the flag, wavelength and uncertaintities. 
-    
-    Parameters:
-    -----------
-    `data`: {class}
-        Data from load() function,\n
-    `use_flag`: {boolean}
-        If True, use flag from the original oifits file,\n
-    `cond_wl`: {boolean}
-        If True, apply wavelenght restriction between wl_bounds,\n
-    `wl_bounds`: {float}
-        If cond_wl, limits of the wavelength domain wl_bounds[0] to wl_bounds[1] [µm],\n
-    `cond_uncer`: {boolean}
-        If True, select the best data according their relative uncertainties (rel_max),\n
-    `rel_max`: {float}
-        if cond_uncer, maximum sigma uncertainties allowed [%],\n
-        
-    Returns:
-    --------
-    `data_selected` {array}:
-        Return selected data, numbers of pts and conditions applied. 
-    """
-    freq_vis2 = data.freq_vis2.flatten()
-    vis2 = data.vis2.flatten()
-    e_vis2 = data.e_vis2.flatten()
-    wl = np.array([data.wl for i in range(len(data.vis2))]).flatten()
-    n_v2 = len(vis2)
-
-    print('Data wavelengths are:')
-    print(data.wl*1e6, 'µm')
-
-    sel_flag_v2 = np.array([True]*n_v2)
-    if use_flag:
-        sel_flag_v2 = np.invert(data.flag_vis2.flatten())
-
-    sel_wl = np.array([True]*len(wl))
-    if cond_wl:
-        if wl_bounds is not None:
-            sel_wl = (wl >= wl_bounds[0]*1e-6) & (wl < wl_bounds[1]*1e-6)
-        else:
-            print(
-                'wl_bounds is None, please give wavelength limits (e.g.: [2, 3])')
-
-    sel_err = np.array([True]*n_v2)
-    if cond_uncer:
-        rel_err = e_vis2/vis2
-        if rel_max is not None:
-            sel_err = (abs(rel_err) < rel_max*1e-2)
-        else:
-            print('rel_max is None, please a uncertainty limit [%].')
-
-    cond_sel_v2 = sel_flag_v2 & sel_wl & sel_err
-
-    n_flag = len(vis2[sel_flag_v2])
-    n_wl = len(vis2[sel_wl])
-    n_err = len(vis2[sel_err])
-
-    print('\n--- Data selection VIS2 ---')
-    if use_flag:
-        print('Flag used %i/%i selected (%2.1f %%).' %
-              (n_flag, len(vis2), 100.*float(n_flag)/len(vis2)))
-    if cond_wl:
-        print('Wavelength selection %i/%i (%2.1f %%).' %
-              (n_wl, len(vis2), 100.*float(n_wl)/len(vis2)))
-    if cond_uncer:
-        print('Error selection %i/%i (%2.1f %%).' %
-              (n_err, len(vis2), 100.*float(n_err)/len(vis2)))
-
-    data_selected = (freq_vis2[cond_sel_v2], vis2[cond_sel_v2],
-                     e_vis2[cond_sel_v2], wl[cond_sel_v2],
-                     [n_flag, n_wl, n_err], cond_sel_v2)
-    return data_selected
-
-
-def _select_data_cp(data, use_flag=True, cond_wl=False, wl_bounds=None,
-                    cond_uncer=False, rel_max=None):
-    """ Select CP according to the flag, wavelength and uncertaintities. 
-    
-    Parameters:
-    -----------
-    `data`: {class}
-        Data from load() function,\n
-    `use_flag`: {boolean}
-        If True, use flag from the original oifits file,\n
-    `cond_wl`: {boolean}
-        If True, apply wavelenght restriction between wl_bounds,\n
-    `wl_bounds`: {float}
-        If cond_wl, limits of the wavelength domain wl_bounds[0] to wl_bounds[1] [µm],\n
-    `cond_uncer`: {boolean}
-        If True, select the best data according their relative uncertainties (rel_max),\n
-    `rel_max`: {float}
-        if cond_uncer, maximum sigma uncertainties allowed [%],\n
-        
-    Returns:
-    --------
-    `data_selected` {array}:
-        Return selected data, numbers of pts and conditions applied. 
-    
-    """
-    freq_cp = data.freq_cp.flatten()
-    cp = data.cp.flatten()
-    e_cp = data.e_cp.flatten()
-    wl_cp = np.array([data.wl for i in range(len(data.cp))]).flatten()
-    n_cp = len(cp)
-
-    sel_flag_cp = np.array([True]*n_cp)
-    if use_flag:
-        sel_flag_cp = np.invert(data.flag_cp.flatten())
-
-    sel_wl = np.array([True]*len(wl_cp))
-    if cond_wl:
-        if wl_bounds is not None:
-            sel_wl = (wl_cp >= wl_bounds[0]*1e-6) & (wl_cp < wl_bounds[1]*1e-6)
-        else:
-            print(
-                'wl_bounds is None, please give wavelength limits (e.g.: [2, 3])')
-
-    sel_err = np.array([True]*n_cp)
-    if cond_uncer:
-        rel_err = e_cp/cp
-        sel_err = (abs(rel_err) < rel_max*1e-2)
-
-    cond_sel_cp = sel_flag_cp & sel_wl & sel_err
-
-    n_flag = len(cp[sel_flag_cp])
-    n_wl = len(cp[sel_wl])
-    n_err = len(cp[sel_err])
-
-    print('\n--- Data selection CP ---')
-    if use_flag:
-        print('Flag used %i/%i selected (%2.1f %%).' %
-              (n_flag, len(cp), 100.*float(n_flag)/len(cp)))
-    if cond_wl:
-        print('Wavelength selection %i/%i (%2.1f %%).' %
-              (n_wl, len(cp), 100.*float(n_wl)/len(cp)))
-    if cond_uncer:
-        print('Error selection %i/%i (%2.1f %%).' %
-              (n_err, len(cp), 100.*float(n_err)/len(cp)))
-
-    data_selected = (freq_cp[cond_sel_cp], cp[cond_sel_cp],
-                     e_cp[cond_sel_cp], wl_cp[cond_sel_cp],
-                     [n_flag, n_wl, n_err], cond_sel_cp)
-    return data_selected
-
-
-def _adapt_uncertainties(e_vis2, e_cp, err_scale_v2=1, err_scale_cp=1,
-                         extra_error_cp=0, extra_error_v2=0):
-    """ Adapt the uncertainties adding extra_error (quadratically added)
-    and scaling multipliticaly with err_scale_X. """
-    e_cp = np.sqrt(e_cp**2 + extra_error_cp**2) * err_scale_cp
-    e_vis2 = np.sqrt(e_vis2**2 + extra_error_v2**2) * err_scale_v2
-    return e_vis2, e_cp
-
-
-def plot_residuals(data, param, use_flag=True, cond_wl=False, wl_bounds=None, 
-                   cond_uncer=False, rel_max=None, err_scale_v2=1, err_scale_cp=1, 
-                   extra_error_v2=0, extra_error_cp=0, d_freedom=None, 
-                   cp_max=None, v2_min=None, v2_max=1.1, color_wl=False):
+def plot_residuals(data, mod_v2, mod_cp, use_flag=True, modelname='model',
+                   d_freedom=0, cp_max=None, v2_min=None, v2_max=1.1,
+                   color_wl=False):
     """ Plot the data with the model (param) and corresponding residuals.
-    
+
     Parameters:
     -----------
     `data`: {class}
@@ -629,43 +395,20 @@ def plot_residuals(data, param, use_flag=True, cond_wl=False, wl_bounds=None,
         Dictionnary containing the model parameters,\n
     `use_flag`: {boolean}
         If True, use flag from the original oifits file,\n
-    `cond_wl`: {boolean}
-        If True, apply wavelenght restriction between wl_bounds,\n
-    `wl_bounds`: {float}
-        If cond_wl, limits of the wavelength domain wl_bounds[0] to wl_bounds[1] [µm],\n
-    `cond_uncer`: {boolean}
-        If True, select the best data according their relative uncertainties (rel_max),\n
-    `rel_max`: {float}
-        if cond_uncer, maximum sigma uncertainties allowed [%],\n
-    `err_scale_v2, err_scale_cp` {float}:
-        Scaling factor applied on uncertaintities,\n
-    `extra_error_v2, extra_error_cp` {float}:
-        Extra errors quadratically added on uncertaintities,\n
     `d_freedom` {int}:
-        Degree of freedom used during the model fitting.\n    
+        Degree of freedom used during the model fitting.\n
     """
-    cond_sel = {'use_flag': use_flag,
-                'cond_wl': cond_wl, 'wl_bounds': wl_bounds,
-                'cond_uncer': cond_uncer, 'rel_max': rel_max}
+    data_v2 = _flat_v2_data(data, use_flag=use_flag)
+    data_cp = _flat_cp_data(data, use_flag=use_flag)
 
-    freq_vis2, vis2, e_vis2, wl_v2, sel_v2, cond_v2 = _select_data_v2(
-        data, **cond_sel)
-    freq_cp, cp, e_cp, wl_cp, sel_cp, cond_cp = _select_data_cp(
-        data, **cond_sel)
+    freq_vis2, vis2, e_vis2, wl_v2, cond_v2 = data_v2
+    freq_cp, cp, e_cp, wl_cp, cond_cp = data_cp
 
-    e_vis2, e_cp = _adapt_uncertainties(e_vis2, e_cp, err_scale_v2=err_scale_v2,
-                                        err_scale_cp=err_scale_cp,
-                                        extra_error_cp=extra_error_cp,
-                                        extra_error_v2=extra_error_v2)
-
-    mod_v2 = _compute_v2_mod(data, param)[cond_v2]
-    mod_cp = _compute_cp_mod(data, param)[cond_cp]
+    mod_v2 = mod_v2.flatten()[cond_v2]
+    mod_cp = mod_cp.flatten()[cond_cp]
 
     res_vis2 = (mod_v2 - vis2)/e_vis2
     res_cp = (mod_cp - cp)/e_cp
-
-    if d_freedom is None:
-        d_freedom = len(param.keys()) - 1
 
     chi2_cp = np.sum(((cp - mod_cp)**2/(e_cp)**2)) / \
         (len(e_cp) - (d_freedom - 1))
@@ -673,7 +416,7 @@ def plot_residuals(data, param, use_flag=True, cond_wl=False, wl_bounds=None,
         (len(e_vis2) - (d_freedom - 1))
 
     ms = 5
-    fig = plt.figure(constrained_layout=True, figsize=(11, 4))
+    fig = plt.figure(constrained_layout=True, figsize=(15, 6))
     axd = fig.subplot_mosaic([['vis', 'cp'], ['res_vis2', 'res_cp']],
                              gridspec_kw={'width_ratios': [2, 2],
                                           'height_ratios': [3, 1]})
@@ -687,12 +430,17 @@ def plot_residuals(data, param, use_flag=True, cond_wl=False, wl_bounds=None,
         axd['vis'].errorbar(freq_vis2, vis2, yerr=e_vis2, marker='None',
                             linestyle='None', elinewidth=1, color='grey',
                             capsize=1)
-        fig.colorbar(sc, ax=axd['vis'], shrink=0.5)
+        cax = fig.add_axes([axd['vis'].get_position().x1*0.93,
+                            axd['vis'].get_position().y1*0.8, 0.01,
+                            axd['vis'].get_position().height*0.4])
+        cb = plt.colorbar(sc, cax=cax)
+
+        cb.set_label('$\lambda$ [µm]', fontsize=8)
     else:
         axd['vis'].errorbar(freq_vis2, vis2, yerr=e_vis2, **
                             err_pts_style, color='#3d84a8')
     axd['vis'].plot(freq_vis2, mod_v2, 'x', color='#f6416c', zorder=100, ms=ms,
-                    label='model ($\chi^2_r=%2.2f$)' % chi2_vis2, alpha=.7)
+                    label='%s ($\chi^2_r=%2.2f$)' % (modelname, chi2_vis2), alpha=.7)
     axd['vis'].legend()
     if v2_min is not None:
         axd['vis'].set_ylim(v2_min, v2_max)
@@ -708,23 +456,26 @@ def plot_residuals(data, param, use_flag=True, cond_wl=False, wl_bounds=None,
         if res_vis2.max() > 5:
             res_mas = res_vis2.max()
     except ValueError:
-        npts_v2_all = len(data.vis2.flatten())
-        axd['vis'].text(0.5, 0.5, 'ALL FLAGGED\n(%i, %i, %i/%i)' % (sel_v2[0],
-                                                                    sel_v2[1],
-                                                                    sel_v2[2],
-                                                                    npts_v2_all), color='r',
+        axd['vis'].text(0.5, 0.5, 'ALL FLAGGED', color='r',
                         ha='center', va='center', fontweight='bold',
                         transform=axd['vis'].transAxes, fontsize=20)
 
-    axd['res_cp'].set_ylim(-res_mas, res_mas)
-    axd['res_vis2'].set_ylim(-5, 5)
+    axd['res_vis2'].set_ylim(-res_mas, res_mas)
     axd['res_vis2'].set_ylabel('Residual [$\sigma$]')
     axd['res_vis2'].set_xlabel('Sp. Freq. [arcsec$^{-1}$]')
 
-    axd['cp'].errorbar(freq_cp, cp, yerr=e_cp, **
-                       err_pts_style, color='#289045')
+    if color_wl:
+        sc = axd['cp'].scatter(freq_cp, cp, c=wl_cp*1e6, s=7,
+                               cmap='turbo', zorder=20)
+        axd['cp'].errorbar(freq_cp, cp, yerr=e_cp, marker='None',
+                           linestyle='None', elinewidth=1, color='grey',
+                           capsize=1)
+    else:
+        axd['cp'].errorbar(freq_cp, cp, yerr=e_cp, **
+                           err_pts_style, color='#289045')
+
     axd['cp'].plot(freq_cp, mod_cp, 'x', color='#f6416c', zorder=100, ms=ms,
-                   label='model ($\chi^2_r=%2.1f$)' % chi2_cp, alpha=.7)
+                   label='%s ($\chi^2_r=%2.1f$)' % (modelname, chi2_cp), alpha=.7)
 
     if cp_max is not None:
         axd['cp'].set_ylim(-cp_max, cp_max)
@@ -742,11 +493,7 @@ def plot_residuals(data, param, use_flag=True, cond_wl=False, wl_bounds=None,
         else:
             res_mas = 5
     except ValueError:
-        npts_cp_all = len(data.cp.flatten())
-        axd['cp'].text(0.5, 0.5, 'ALL FLAGGED\n(%i, %i, %i/%i)' % (sel_cp[0],
-                                                                   sel_cp[1],
-                                                                   sel_cp[2],
-                                                                   npts_cp_all), color='r',
+        axd['cp'].text(0.5, 0.5, 'ALL FLAGGED', color='r',
                        ha='center', va='center', fontweight='bold',
                        transform=axd['cp'].transAxes, fontsize=20)
         pass
@@ -755,168 +502,98 @@ def plot_residuals(data, param, use_flag=True, cond_wl=False, wl_bounds=None,
     axd['res_cp'].set_xlabel('Sp. Freq. [arcsec$^{-1}$]')
     return fig
 
-# def plot_uvdata_im(data, rot=0, unit_vis='lambda', onecolor=False, color='r', ms=3, alpha=1):
-#     """ """
-#     if unit_vis == 'lambda':
-#         f = 1e6
-#     elif unit_vis == 'arcsec':
-#         f = rad2mas(1)/1000.
 
-#     try:
-#         npts = len(data)
-#         one = False
-#     except TypeError:
-#         one = True
-#         npts = 1
+def plot_complex_model(grid, data=None, i_sp=0, bmax=100, unit_im='mas', unit_vis='lambda',
+                       p=0.5, rotation=0):
+    """ Plot model and corresponding visibility and phase plan. Additionallly, you
+        can add data to show the u-v coverage compare to model.
 
-#     if one:
-#         l_bl_label, l_color = [], []
-#         index2tel = _index_2_tel([data])[0]
-#         for i in range(len(data.index)):
-#             tel1, tel2 = index2tel[data.index[i]
-#                                    [0]], index2tel[data.index[i][1]]
-#             name_bl = '%s-%s' % (tel1, tel2)
-#             name_bl_r = '%s-%s' % (tel2, tel1)
-#             try:
-#                 c = dic_color[name_bl]
-#                 label_bl = name_bl
-#             except KeyError:
-#                 c = dic_color[name_bl_r]
-#                 label_bl = name_bl_r
-#             l_bl_label.append(label_bl)
-#             if onecolor:
-#                 c = color
-#             l_color.append(c)
+    Parameters
+    ----------
+    `grid` : {class}
+        Class generated using model2grid function,\n
+    `i_sp` : {int}, optional
+        Index number of the wavelength to display (in case of datacube), by default 0\n
+    `bmax` : {int}, optional
+        Maximum baseline to restrein the visibility field of view, by default 20\n
+    `unit_im` : {str}, optional
+        Unit of the spatial coordinates (model), by default 'arcsec'\n
+    `unit_vis` : {str}, optional
+        Unit of the complex coordinates (fft), by default 'lambda'\n
+    `data` : {class}, optional
+        Class containing oifits data (see OiFile2Class or dir2data function), by default None\n
+    `p` : {float}, optional
+        Normalization factor of the image, by default 0.5\n
+    """
+    fmin = grid.freq.min()
+    fmax = grid.freq.max()
+    fov = grid.fov
+    if unit_im == 'mas':
+        f2 = 1
+    else:
+        unit_im = 'arcsec'
+        f2 = 1000.
 
-#         tab = data
-#         for j in range(6):
-#             angle = np.deg2rad(rot)
+    if unit_vis == 'lambda':
+        f = 1e6
+    elif unit_vis == 'arcsec':
+        f = rad2mas(1)/1000.
 
-#             um0 = tab.u[j]/tab.wl/f
-#             vm0 = tab.v[j]/tab.wl/f
+    extent_im = np.array([fov/2., -fov/2., -fov/2., fov/2.])/f2
+    extent_vis = np.array([fmin, fmax, fmin, fmax])/f
 
-#             um = um0*np.cos(angle) - vm0*np.sin(angle)
-#             vm = um0*np.sin(angle) + vm0*np.cos(angle)
+    fft2D = grid.fft
+    cube = grid.cube
 
-#             plt.scatter(um, vm, s=5, color=l_color[j], alpha=alpha)
-#             plt.scatter(-um, -vm, s=5, color=l_color[j], alpha=alpha)
+    im_phase = abs(np.angle(fft2D)[i_sp])[:, ::-1]
+    im_amp = np.abs(fft2D)[i_sp][:, ::-1]
+    im_model = cube[i_sp]
 
-#     else:
-#         for i in range(npts):
-#             tab = data[i]
-#             l_bl_label, l_color = [], []
-#             index2tel = _index_2_tel([tab])[0]
-#             for k in range(len(tab.index)):
-#                 tel1, tel2 = index2tel[tab.index[k]
-#                                        [0]], index2tel[tab.index[k][1]]
-#                 name_bl = '%s-%s' % (tel1, tel2)
-#                 name_bl_r = '%s-%s' % (tel2, tel1)
-#                 try:
-#                     c = dic_color[name_bl]
-#                     label_bl = name_bl
-#                 except KeyError:
-#                     c = dic_color[name_bl_r]
-#                     label_bl = name_bl_r
-#                 l_bl_label.append(label_bl)
-#                 if onecolor:
-#                     c = color
-#                 l_color.append(c)
+    wl_model = grid.wl[i_sp]
 
-#             for j in range(6):
-#                 angle = np.deg2rad(rot)
+    umax = 2*bmax/wl_model/f
+    ax_vis = [-umax, umax, -umax, umax]
+    modelname = grid.name
 
-#                 um0 = tab.u[j]/tab.wl/f
-#                 vm0 = tab.v[j]/tab.wl/f
+    # fig = plt.figure(figsize=(14, 5))
+    fig, axs = plt.subplots(1, 3, figsize=(14, 5))
+    # fig, ax1 = plt.subplot(1, 3, 1)
+    axs[0].set_title('Model "%s" ($\lambda$ = %2.2f $\mu$m)' %
+                     (modelname, wl_model*1e6))
+    axs[0].imshow(im_model, norm=PowerNorm(p), origin='lower',
+                  extent=extent_im, cmap='afmhot')
+    axs[0].set_xlabel('$\Delta$RA [%s]' % (unit_im))
+    axs[0].set_ylabel('$\Delta$DEC [%s]' % (unit_im))
 
-#                 um = um0*np.cos(angle) - vm0*np.sin(angle)
-#                 vm = um0*np.sin(angle) + vm0*np.cos(angle)
-#                 plt.scatter(um, vm, s=5, color=l_color[j], alpha=alpha)
-#                 plt.scatter(-um, -vm, s=5, color=l_color[j], alpha=alpha)
+    axs[1].set_title('Squared visibilities (V$^2$)')
+    axs[1].imshow(im_amp**2, norm=PowerNorm(1), origin='lower',
+                  extent=extent_vis, cmap='gist_earth')
+    axs[1].axis(ax_vis)
+    axs[1].plot(0, 0, 'r+')
 
-#     return None
+    if data is not None:
+        _plot_uvdata_coord(data, ax=axs[1], rotation=rotation)
 
+    if unit_vis == 'lambda':
+        plt.xlabel('U [M$\lambda$]')
+        plt.ylabel('V [M$\lambda$]')
+    else:
+        plt.xlabel('U [arcsec$^{-1}$]')
+        plt.ylabel('V [arcsec$^{-1}$]')
 
-# def plot_uvdata_im_v2(tab, bmax=150, use_flag=False, cond_uncer=False, cond_wl=False,
-#                       rot=0, wl_min=None, wl_max=None, rel_max=None):
-#     if type(tab) == list:
-#         data = tab[0]
-#     else:
-#         data = tab
-#         tab = [tab]
+    # plt.subplot(1, 3, 3)
+    axs[2].set_title('Phase [rad]')
+    axs[2].imshow(im_phase, norm=PowerNorm(1), origin='lower',
+                  extent=extent_vis, cmap='gist_earth')
+    axs[2].plot(0, 0, 'r+')
 
-#     nwl = len(data.wl)
-#     nbl = data.vis2.shape[0]
-
-#     list_bl = []
-
-#     dic_ind = _index_2_tel(tab)[0]
-
-#     if cond_wl:
-#         try:
-#             float(wl_min)
-#         except TypeError:
-#             cprint('-'*38, 'red')
-#             cprint('Warnings: wavelengths limits not set!', 'red')
-#             cprint('-'*38, 'red')
-
-#     l_base2 = []
-#     for j in range(len(tab)):
-#         data = tab[j]
-#         for i in range(nbl):
-#             if use_flag:
-#                 sel_flag = np.invert(data.flag_vis2[i])
-#             else:
-#                 sel_flag = [True]*nwl
-
-#             if cond_uncer:
-#                 vis2 = data.vis2[i, :]
-#                 e_vis2 = data.e_vis2[i]
-#                 rel_err = e_vis2/vis2
-#                 sel_err = (rel_err <= rel_max*1e-2)
-#             else:
-#                 sel_err = np.array([True]*nwl)
-
-#             if cond_wl:
-#                 try:
-#                     sel_wl = (data.wl >= wl_min*1e-6) & (data.wl < wl_max*1e-6)
-#                 except TypeError:
-#                     sel_wl = np.array([True]*nwl)
-
-#             else:
-#                 sel_wl = np.array([True]*nwl)
-
-#             cond = sel_flag & sel_err & sel_wl
-
-#             U = data.u[i]/data.wl/1e6
-#             V = data.v[i]/data.wl/1e6
-
-#             u = U[cond]
-#             v = V[cond]
-
-#             base = '%s-%s' % (dic_ind[data.index[i][0]],
-#                               dic_ind[data.index[i][1]])
-#             base2 = '%s-%s' % (dic_ind[data.index[i][1]],
-#                                dic_ind[data.index[i][0]])
-#             l_base2.append(base)
-#             if not (base or base2) in list_bl:
-#                 bl1 = base
-#                 list_bl.append(base)
-#             else:
-#                 bl1 = ''
-
-#             try:
-#                 angle = np.deg2rad(rot)
-#                 um = u*np.cos(angle) - v*np.sin(angle)
-#                 vm = u*np.sin(angle) + v*np.cos(angle)
-
-#                 plt.scatter(
-#                     um, vm, s=15, c=dic_color[base], label=bl1, marker='o')
-#                 plt.scatter(-um, -vm, s=15, c=dic_color[base], marker='o')
-#             except Exception:
-#                 station = base.split('-')
-#                 base_new = '%s-%s' % (station[1], station[0])
-#                 um = u*np.cos(angle) - v*np.sin(angle)
-#                 vm = u*np.sin(angle) + v*np.cos(angle)
-#                 plt.scatter(
-#                     um, vm, s=15, c=dic_color[base_new], label=bl1, marker='o')
-#                 plt.scatter(-um, -vm, s=15, c=dic_color[base_new], marker='o')
+    if unit_vis == 'lambda':
+        axs[2].set_xlabel('U [M$\lambda$]')
+        axs[2].set_ylabel('V [M$\lambda$]')
+    else:
+        axs[2].set_xlabel('U [arcsec$^{-1}$]')
+        axs[2].set_ylabel('V [arcsec$^{-1}$]')
+    axs[2].axis(ax_vis)
+    plt.tight_layout()
+    plt.show(block=False)
+    return fig
