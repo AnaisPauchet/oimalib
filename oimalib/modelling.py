@@ -53,6 +53,8 @@ def model2grid(modelfile, wl_user=None, rotation=0, scale=1, fliplr=False, pad_f
     ----------
     `modelfile` {str}:
         Name of the model (path),\n
+    `wl_user` {array}:
+        If not found in the header, wavelength array is required [µm],\n
     `rotation` {int};
         Angle to rotate the model [deg], by default 0,\n
     `scale` {int}:
@@ -88,7 +90,7 @@ def model2grid(modelfile, wl_user=None, rotation=0, scale=1, fliplr=False, pad_f
 
         if wl0 is None:
             if wl_user is None:
-                print('Wavelength not found: need wl_user [µm].')
+                cprint('Wavelength not found: need wl_user [µm].', 'red')
                 return None
             else:
                 wl0 = wl_user
