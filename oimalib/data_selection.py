@@ -54,7 +54,7 @@ def _select_data_cp(i, data, use_flag=False, cond_uncer=False, cond_wl=False,
     cp = data.cp[i, :]
     e_cp = data.e_cp[i]
     if cond_uncer:
-        rel_err = e_cp/cp
+        rel_err = abs(e_cp/cp)
         sel_err = np.invert((rel_err <= rel_max*1e-2))
 
     if cond_wl:
