@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 from munch import munchify as dict2class
 from scipy.interpolate import interp1d
 from tqdm import tqdm
+from uncertainties import ufloat
 
 import oimalib
 
@@ -12,25 +13,43 @@ from . import complex_models
 from .fit.dpfit import leastsqFit
 from .tools import mas2rad, round_sci_digit
 
-err_pts_style = {'linestyle': "None", 'capsize': 1, 'ecolor': '#364f6b', 'mec': '#364f6b',
-                 'marker': '.', 'elinewidth': 0.5, 'alpha': 1, 'ms': 14}
+err_pts_style = {
+    "linestyle": "None",
+    "capsize": 1,
+    "ecolor": "#364f6b",
+    "mec": "#364f6b",
+    "marker": ".",
+    "elinewidth": 0.5,
+    "alpha": 1,
+    "ms": 14,
+}
 
 
 def select_model(name):
     """ Select a simple model computed in the Fourier space
     (check model.py) """
-    if name == 'disk':
+    if name == "disk":
         model = complex_models.visUniformDisk
-    elif name == 'binary':
+    elif name == "binary":
         model = complex_models.visBinary
-    elif name == 'binary_res':
+    elif name == "binary_res":
         model = complex_models.visBinary_res
-    elif name == 'edisk':
-        model = complex_models.visEllipticakUniformDisk
-    elif name == 'debrisDisk':
+    elif name == "edisk":
+        model = complex_models.visEllipticalUniformDisk
+    elif name == "debrisDisk":
         model = complex_models.visDebrisDisk
-    elif name == 'clumpyDebrisDisk':
+    elif name == "clumpyDebrisDisk":
         model = complex_models.visClumpDebrisDisk
+    elif name == "gdisk":
+        model = complex_models.visGaussianDisk
+    elif name == "egauss":
+        model = complex_models.visEllipticalGaussianDisk
+    elif name == "ering":
+        model = complex_models.visThickEllipticalRing
+    elif name == "lor":
+        model = complex_models.visLorentzDisk
+    elif name == "yso":
+        model = complex_models.visYSO
     else:
         model = None
     return model
@@ -40,17 +59,25 @@ def check_params_model(param):
     """ Check if the user parameters are compatible
     with the model. """
     isValid = True
-    log = ''
-    if param['model'] == 'edisk':
+    log = ""
+    if param["model"] == "edisk":
         elong = param["elong"]
         minorAxis = mas2rad(param["minorAxis"])
-        angle = np.deg2rad(param["angle"])
+        angle = np.deg2rad(param["pa"])
         if (elong < 1) or (angle < 0) or (angle > np.pi) or (minorAxis < 0):
-            log = "# elong > 1,\n# minorAxis > 0 mas,\n# 0 < angle < 180 deg.\n"
+            log = "# elong > 1,\n# minorAxis > 0 mas,\n# 0 < pa < 180 deg."
             isValid = False
-    elif param['model'] == 'binary':
+    elif param["model"] == "binary":
         dm = param["dm"]
         if dm < 0:
+            isValid = False
+    elif param["model"] == "yso":
+        cosi = param["cosi"]
+        pa = param["pa"]
+        fs = param["fs"]
+        fc = param["fc"]
+        fh = 1 - fs - fc
+        if (cosi > 1) or (fs + fh + fc != 1) or (pa < 0) or (pa > 180):
             isValid = False
 
     return isValid, log
@@ -65,10 +92,10 @@ def comput_V2(X, param, model):
     isValid = check_params_model(param)[0]
 
     if not isValid:
-        V2 = 2
+        V2 = np.nan
     else:
         V = model(u, v, wl, param)
-        V2 = np.abs(V)**2
+        V2 = np.abs(V) ** 2
     return V2
 
 
@@ -86,7 +113,7 @@ def comput_CP(X, param, model):
     V2 = model(u2, v2, wl, param)
     V3 = model(u3, v3, wl, param)
 
-    BS = V1*V2*V3
+    BS = V1 * V2 * V3
     CP = np.rad2deg(np.arctan2(BS.imag, BS.real))
     return CP
 
@@ -100,13 +127,13 @@ def engine_multi_proc(inputs):
         typ = inputs[1]
         param = inputs[-1]
 
-        modelname = param['model']
+        modelname = param["model"]
 
         model_target = select_model(modelname)
 
-        if typ == 'V2':
+        if typ == "V2":
             mod = comput_V2(X, param, model_target)
-        elif typ == 'CP':
+        elif typ == "CP":
             mod = comput_CP(X, param, model_target)
         else:
             mod = np.nan
@@ -120,17 +147,17 @@ def model_standard(obs, param):
     """
     Compute model for each data points in obs tuple.
     """
-    modelname = param['model']
+    modelname = param["model"]
     model_target = select_model(modelname)
     bunch = len(obs)
     res = np.zeros(bunch)
     for i in range(bunch):
         try:
             typ = obs[i][1]
-            if typ == 'V2':
+            if typ == "V2":
                 X = obs[i][0]
                 mod = comput_V2(X, param, model_target)
-            elif typ == 'CP':
+            elif typ == "CP":
                 X = obs[i][0]
                 mod = comput_CP(X, param, model_target)
             else:
@@ -150,7 +177,7 @@ def model_parallelized(obs, param, ncore=12):
     """
     pool = Pool(ncore)
 
-    b = np.array([param]*len(obs))
+    b = np.array([param] * len(obs))
     c = b.reshape(len(obs), 1)
     d = np.append(obs, c, axis=1)
 
@@ -161,9 +188,20 @@ def model_parallelized(obs, param, ncore=12):
     return np.array(res)
 
 
-def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
-             cond_uncer=False, rel_max=None, extra_error_v2=0, extra_error_cp=0,
-             err_scale=1, input_rad=False, verbose=True, ):
+def fits2obs(
+    inputdata,
+    use_flag=True,
+    cond_wl=False,
+    wl_min=None,
+    wl_max=None,
+    cond_uncer=False,
+    rel_max=None,
+    extra_error_v2=0,
+    extra_error_cp=0,
+    err_scale=1,
+    input_rad=False,
+    verbose=True,
+):
     """
     Convert and select data from an oifits file.
 
@@ -208,25 +246,25 @@ def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
     ncp = data.cp.shape[0]
 
     vis2_data = data.vis2.flatten()  # * 0.97
-    e_vis2_data = (data.e_vis2.flatten()**2 + extra_error_v2**2)**0.5
+    e_vis2_data = (data.e_vis2.flatten() ** 2 + extra_error_v2 ** 2) ** 0.5
     flag_V2 = data.flag_vis2.flatten()
 
     if input_rad:
         cp_data = np.rad2deg(data.cp.flatten())
         e_cp_data = np.rad2deg(
-            np.sqrt(data.e_cp.flatten()**2+extra_error_cp**2) * err_scale)
+            np.sqrt(data.e_cp.flatten() ** 2 + extra_error_cp ** 2) * err_scale
+        )
     else:
         cp_data = data.cp.flatten()
-        e_cp_data = np.sqrt(data.e_cp.flatten()**2 +
-                            extra_error_cp**2) * err_scale
+        e_cp_data = np.sqrt(data.e_cp.flatten() ** 2 + extra_error_cp ** 2) * err_scale
 
     flag_CP = data.flag_cp.flatten()
 
     if use_flag:
         pass
     else:
-        flag_V2 = [False]*len(vis2_data)
-        flag_CP = [False]*len(cp_data)
+        flag_V2 = [False] * len(vis2_data)
+        flag_CP = [False] * len(cp_data)
 
     u_data, v_data = [], []
     u1_data, v1_data, u2_data, v2_data = [], [], [], []
@@ -251,22 +289,22 @@ def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
     u2_data = np.array(u2_data)
     v2_data = np.array(v2_data)
 
-    wl_data = np.array(list(data.wl)*nbl)
-    wl_data_cp = np.array(list(data.wl)*ncp)
+    wl_data = np.array(list(data.wl) * nbl)
+    wl_data_cp = np.array(list(data.wl) * ncp)
 
     obs = []
 
-    for i in range(nbl*nwl):
+    for i in range(nbl * nwl):
         if flag_V2[i] & use_flag:
             pass
         else:
             if not cond_wl:
                 tmp = [u_data[i], v_data[i], wl_data[i]]
-                typ = 'V2'
+                typ = "V2"
                 obser = vis2_data[i]
                 err = e_vis2_data[i]
                 if cond_uncer:
-                    if (err/obser <= rel_max*1e-2):
+                    if err / obser <= rel_max * 1e-2:
                         obs.append([tmp, typ, obser, err])
                     else:
                         pass
@@ -274,13 +312,13 @@ def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
                     obs.append([tmp, typ, obser, err])
 
             else:
-                if (wl_data[i] >= wl_min*1e-6) & (wl_data[i] <= wl_max*1e-6):
+                if (wl_data[i] >= wl_min * 1e-6) & (wl_data[i] <= wl_max * 1e-6):
                     tmp = [u_data[i], v_data[i], wl_data[i]]
-                    typ = 'V2'
+                    typ = "V2"
                     obser = vis2_data[i]
                     err = e_vis2_data[i]
                     if cond_uncer:
-                        if (err/obser <= rel_max*1e-2):
+                        if err / obser <= rel_max * 1e-2:
                             obs.append([tmp, typ, obser, err])
                         else:
                             pass
@@ -290,32 +328,46 @@ def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
                     pass
     N_v2_rest = len(obs)
 
-    for i in range(ncp*nwl):
+    for i in range(ncp * nwl):
         if flag_CP[i]:
             pass
         else:
             if not cond_wl:
-                tmp = [u1_data[i], u2_data[i], (u1_data[i]+u2_data[i]), v1_data[i], v2_data[i],
-                       (v1_data[i]+v2_data[i]), wl_data_cp[i]]
-                typ = 'CP'
+                tmp = [
+                    u1_data[i],
+                    u2_data[i],
+                    (u1_data[i] + u2_data[i]),
+                    v1_data[i],
+                    v2_data[i],
+                    (v1_data[i] + v2_data[i]),
+                    wl_data_cp[i],
+                ]
+                typ = "CP"
                 obser = cp_data[i]
                 err = e_cp_data[i]
                 if cond_uncer:
-                    if (err/obser <= rel_max*1e-2):
+                    if err / obser <= rel_max * 1e-2:
                         obs.append([tmp, typ, obser, err])
                     else:
                         pass
                 else:
                     obs.append([tmp, typ, obser, err])
             else:
-                if (wl_data_cp[i] >= wl_min*1e-6) & (wl_data_cp[i] <= wl_max*1e-6):
-                    tmp = [u1_data[i], u2_data[i], (u1_data[i]+u2_data[i]), v1_data[i], v2_data[i],
-                           (v1_data[i]+v2_data[i]), wl_data_cp[i]]
-                    typ = 'CP'
+                if (wl_data_cp[i] >= wl_min * 1e-6) & (wl_data_cp[i] <= wl_max * 1e-6):
+                    tmp = [
+                        u1_data[i],
+                        u2_data[i],
+                        (u1_data[i] + u2_data[i]),
+                        v1_data[i],
+                        v2_data[i],
+                        (v1_data[i] + v2_data[i]),
+                        wl_data_cp[i],
+                    ]
+                    typ = "CP"
                     obser = cp_data[i]
                     err = e_cp_data[i]
                     if cond_uncer:
-                        if (err/obser <= rel_max*1e-2):
+                        if err / obser <= rel_max * 1e-2:
                             obs.append([tmp, typ, obser, err])
                         else:
                             pass
@@ -329,16 +381,21 @@ def fits2obs(inputdata, use_flag=True, cond_wl=False, wl_min=None, wl_max=None,
     Obs = np.array(obs)
 
     if verbose:
-        print('\nTotal # of data points: %i (%i V2, %i CP)' %
-              (len(Obs), N_v2_rest, N_cp_rest))
+        print(
+            "\nTotal # of data points: %i (%i V2, %i CP)"
+            % (len(Obs), N_v2_rest, N_cp_rest)
+        )
         if use_flag:
-            print('-> Flag in oifits files used.')
+            print("-> Flag in oifits files used.")
         if cond_wl:
-            print(r'-> Restriction on wavelenght: %2.2f < %s < %2.2f µm' %
-                  (wl_min, chr(955), wl_max))
+            print(
+                r"-> Restriction on wavelenght: %2.2f < %s < %2.2f µm"
+                % (wl_min, chr(955), wl_max)
+            )
         if cond_uncer:
-            print(r'-> Restriction on uncertainties: %s < %2.1f %%' %
-                  (chr(949), rel_max))
+            print(
+                r"-> Restriction on uncertainties: %s < %2.1f %%" % (chr(949), rel_max)
+            )
 
     return Obs
 
@@ -347,29 +404,38 @@ def _normalize_err_obs(obs, verbose=False):
     """ Normalize the errorbars to give the same weight for the V2 and CP data """
 
     errs = [o[-1] for o in obs]
-    techs = [('V2'), ('CP')]
+    techs = [("V2"), ("CP")]
     n = [0, 0, 0, 0]
     for o in obs:
         for j, t in enumerate(techs):
             if any([x in o[1] for x in t]):
                 n[j] += 1
     if verbose:
-        print('-'*50)
-        print('error bar normalization by observable:')
+        print("-" * 50)
+        print("error bar normalization by observable:")
         for j, t in enumerate(techs):
-            print(t, n[j], np.sqrt(float(n[j])/len(obs)*len(n)))
-        print('-'*50)
+            print(t, n[j], np.sqrt(float(n[j]) / len(obs) * len(n)))
+        print("-" * 50)
 
     for i, o in enumerate(obs):
         for j, t in enumerate(techs):
             if any([x in o[1] for x in t]):
-                errs[i] *= np.sqrt(float(n[j])/len(obs)*len(n))
+                errs[i] *= np.sqrt(float(n[j]) / len(obs) * len(n))
     return errs
 
 
-def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
-                       normalizeErrors=False, fitCP=True, onlyCP=False,
-                       ymin=0, ymax=3):
+def compute_chi2_curve(
+    obs,
+    name_param,
+    params,
+    array_params,
+    fitOnly,
+    normalizeErrors=False,
+    fitCP=True,
+    onlyCP=False,
+    ymin=0,
+    ymax=3,
+):
     """
     Compute a 1D reduced chi2 curve to determine the pessimistic (fully correlated)
     uncertainties on one parameter (name_param).
@@ -401,27 +467,46 @@ def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
         Computed errors using the chi2 curve at the position of the chi2_r.min() + 1.
     """
 
-    fit = smartfit(obs, params, normalizeErrors=normalizeErrors,
-                   fitCP=fitCP, onlyCP=onlyCP, fitOnly=fitOnly, ftol=1e-8, epsfcn=1e-6,
-                   multiproc=False, verbose=False)
+    fit = smartfit(
+        obs,
+        params,
+        normalizeErrors=normalizeErrors,
+        fitCP=fitCP,
+        onlyCP=onlyCP,
+        fitOnly=fitOnly,
+        ftol=1e-8,
+        epsfcn=1e-6,
+        multiproc=False,
+        verbose=False,
+    )
 
     # fit_chi2 = fit['chi2']
-    fit_theta = fit['best'][name_param]
-    fit_e_theta = fit['uncer'][name_param]
+    fit_theta = fit["best"][name_param]
+    fit_e_theta = fit["uncer"][name_param]
 
     fitOnly.remove(name_param)
     l_chi2r = []
-    for pr in tqdm(array_params, desc='Chi2 curve (%s)' % name_param, ncols=100):
+    for pr in tqdm(array_params, desc="Chi2 curve (%s)" % name_param, ncols=100):
         params[name_param] = pr
-        lfits = smartfit(obs, params, normalizeErrors=True, fitCP=fitCP, onlyCP=onlyCP,
-                         fitOnly=fitOnly, ftol=1e-8, epsfcn=1e-6, multiproc=False, verbose=False)
-        l_chi2r.append(lfits['chi2'])
+        lfits = smartfit(
+            obs,
+            params,
+            normalizeErrors=True,
+            fitCP=fitCP,
+            onlyCP=onlyCP,
+            fitOnly=fitOnly,
+            ftol=1e-8,
+            epsfcn=1e-6,
+            multiproc=False,
+            verbose=False,
+        )
+        l_chi2r.append(lfits["chi2"])
 
     n_freedom = len(fitOnly)
     n_pts = len(obs)
 
     l_chi2r = np.array(l_chi2r)
-    l_chi2 = np.array(l_chi2r)*(n_pts-(n_freedom-1))
+    l_chi2 = np.array(l_chi2r) * (n_pts - (n_freedom - 1))
 
     chi2r_m = l_chi2r.min()
     chi2_m = l_chi2.min()
@@ -435,17 +520,16 @@ def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
     right_curve = interp1d(l_chi2r[c_right], array_params[c_right])
 
     try:
-        left_res = left_curve(chi2r_m+1)
-        right_res = right_curve(chi2r_m+1)
+        left_res = left_curve(chi2r_m + 1)
+        right_res = right_curve(chi2r_m + 1)
         dr1_r = abs(fitted_param - left_res)
         dr2_r = abs(fitted_param - right_res)
         # dr1_r, dig = round_sci_digit(dr1_r)
         # dr2_r = round_sci_digit(dr2_r)[0]
         fitted_param = float(np.round(fitted_param, 2))
-        print('sig_chi2: %s = %s - %s + %s' %
-              (name_param, fitted_param, dr1_r, dr2_r))
+        print("sig_chi2: %s = %s - %s + %s" % (name_param, fitted_param, dr1_r, dr2_r))
     except ValueError:
-        print('Try to increase the parameters bounds (chi2_r).')
+        print("Try to increase the parameters bounds (chi2_r).")
         return None
 
     dr1_r = round_sci_digit(dr1_r)[0]
@@ -457,19 +541,38 @@ def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
     fit_theta = float(np.round(fit_theta, 3))
 
     plt.figure()
-    plt.plot(array_params[c_left], l_chi2r[c_left],
-             color='tab:blue', lw=3, alpha=1, zorder=1)
-    plt.plot(array_params[c_right], l_chi2r[c_right],
-             color='tab:blue', lw=3, alpha=1)
-    plt.plot(fit_theta, l_chi2r.min(), '.', color='#fc5185', ms=10,
-             label='fit: %s=%s±%s' % (name_param, fit_theta, fit_e_theta))
-    plt.axvspan(fitted_param-dr1_r, fitted_param + dr2_r, ymin=ymin, ymax=ymax, color='#dbe4e8',
-                label='$\sigma_{m1}=$-%s/+%s' % (dr1_r, dr2_r))
-    plt.axvspan(fitted_param-fit_e_theta, fitted_param + fit_e_theta, ymin=ymin, ymax=ymax, color='#359ccb',
-                label='$\sigma_{m2}$', alpha=.3)
-    plt.grid(alpha=.1, color='grey')
-    plt.legend(loc='best', fontsize=9)
-    plt.ylabel('$\chi^2_{red}$')
+    plt.plot(
+        array_params[c_left], l_chi2r[c_left], color="tab:blue", lw=3, alpha=1, zorder=1
+    )
+    plt.plot(array_params[c_right], l_chi2r[c_right], color="tab:blue", lw=3, alpha=1)
+    plt.plot(
+        fit_theta,
+        l_chi2r.min(),
+        ".",
+        color="#fc5185",
+        ms=10,
+        label="fit: %s=%s±%s" % (name_param, fit_theta, fit_e_theta),
+    )
+    plt.axvspan(
+        fitted_param - dr1_r,
+        fitted_param + dr2_r,
+        ymin=ymin,
+        ymax=ymax,
+        color="#dbe4e8",
+        label="$\sigma_{m1}=$-%s/+%s" % (dr1_r, dr2_r),
+    )
+    plt.axvspan(
+        fitted_param - fit_e_theta,
+        fitted_param + fit_e_theta,
+        ymin=ymin,
+        ymax=ymax,
+        color="#359ccb",
+        label="$\sigma_{m2}$",
+        alpha=0.3,
+    )
+    plt.grid(alpha=0.1, color="grey")
+    plt.legend(loc="best", fontsize=9)
+    plt.ylabel("$\chi^2_{red}$")
     plt.xlim(array_params.min(), array_params.max())
     plt.tight_layout()
     plt.show(block=False)
@@ -477,10 +580,21 @@ def compute_chi2_curve(obs, name_param, params, array_params, fitOnly,
     return fit, errors_chi2
 
 
-def smartfit(obs, first_guess, doNotFit=None, fitOnly=None, follow=None,
-             multiproc=False, ftol=1e-4, epsfcn=1e-7,
-             normalizeErrors=False, scale_err=1,
-             fitCP=True, onlyCP=False, verbose=True):
+def smartfit(
+    obs,
+    first_guess,
+    doNotFit=None,
+    fitOnly=None,
+    follow=None,
+    multiproc=False,
+    ftol=1e-4,
+    epsfcn=1e-7,
+    normalizeErrors=False,
+    scale_err=1,
+    fitCP=True,
+    onlyCP=False,
+    verbose=True,
+):
     """
     Perform the fit of V2 and CP data contained in the obs tuple.
 
@@ -507,11 +621,11 @@ def smartfit(obs, first_guess, doNotFit=None, fitOnly=None, follow=None,
     save_obs = obs.copy()
 
     if onlyCP:
-        cond = save_obs[:, 1] == 'CP'
+        cond = save_obs[:, 1] == "CP"
         obs = save_obs[cond]
 
     if not fitCP and not onlyCP:
-        cond = save_obs[:, 1] == 'V2'
+        cond = save_obs[:, 1] == "V2"
         obs = save_obs[cond]
 
     errs = [o[-1] for o in obs]
@@ -519,8 +633,7 @@ def smartfit(obs, first_guess, doNotFit=None, fitOnly=None, follow=None,
         errs = _normalize_err_obs(obs)
 
     # -- avoid fitting string parameters
-    tmp = list(filter(lambda x: isinstance(
-        first_guess[x], str), first_guess.keys()))
+    tmp = list(filter(lambda x: isinstance(first_guess[x], str), first_guess.keys()))
 
     if len(tmp) > 0:
         if doNotFit is None:
@@ -529,7 +642,8 @@ def smartfit(obs, first_guess, doNotFit=None, fitOnly=None, follow=None,
             doNotFit.extend(tmp)
         try:
             fitOnly = list(
-                filter(lambda x: not isinstance(first_guess[x], str), fitOnly))
+                filter(lambda x: not isinstance(first_guess[x], str), fitOnly)
+            )
         except Exception:
             pass
 
@@ -538,11 +652,25 @@ def smartfit(obs, first_guess, doNotFit=None, fitOnly=None, follow=None,
     else:
         M = model_standard
 
-    lfit = leastsqFit(M, obs, first_guess, [o[2] for o in obs],
-                      err=np.array(errs)*scale_err, doNotFit=doNotFit,
-                      fitOnly=fitOnly, follow=follow, normalizedUncer=False,
-                      verbose=verbose, ftol=ftol, epsfcn=epsfcn)
+    lfit = leastsqFit(
+        M,
+        obs,
+        first_guess,
+        [o[2] for o in obs],
+        err=np.array(errs) * scale_err,
+        doNotFit=doNotFit,
+        fitOnly=fitOnly,
+        follow=follow,
+        normalizedUncer=False,
+        verbose=verbose,
+        ftol=ftol,
+        epsfcn=epsfcn,
+    )
 
+    p = {}
+    for k in fitOnly:
+        p[k] = ufloat(lfit["best"][k], lfit["uncer"][k])
+    lfit["p"] = p
     return lfit
 
 
@@ -562,30 +690,38 @@ def _compute_uvcoord(data):
     v3_data = np.zeros_like(u1_data)
 
     for i in range(nbl):
-        u_data[i] = np.array([data.u[i]]*nwl)
-        v_data[i] = np.array([data.v[i]]*nwl)
+        u_data[i] = np.array([data.u[i]] * nwl)
+        v_data[i] = np.array([data.v[i]] * nwl)
     u_data, v_data = u_data.flatten(), v_data.flatten()
 
     for i in range(ncp):
-        u1_data[i] = np.array([data.u1[i]]*nwl)
-        u2_data[i] = np.array([data.u2[i]]*nwl)
-        u3_data[i] = np.array([data.u3[i]]*nwl)
-        v1_data[i] = np.array([data.v1[i]]*nwl)
-        v2_data[i] = np.array([data.v2[i]]*nwl)
-        v3_data[i] = np.array([data.v3[i]]*nwl)
+        u1_data[i] = np.array([data.u1[i]] * nwl)
+        u2_data[i] = np.array([data.u2[i]] * nwl)
+        u3_data[i] = np.array([data.u3[i]] * nwl)
+        v1_data[i] = np.array([data.v1[i]] * nwl)
+        v2_data[i] = np.array([data.v2[i]] * nwl)
+        v3_data[i] = np.array([data.v3[i]] * nwl)
 
     u1_data, v1_data = u1_data.flatten(), v1_data.flatten()
     u2_data, v2_data = u2_data.flatten(), v2_data.flatten()
     u3_data, v3_data = u3_data.flatten(), v3_data.flatten()
 
-    output = dict2class({'u': u_data, 'v': v_data, 'u1': u1_data,
-                         'v1': v1_data, 'u2': u2_data, 'v2': v2_data,
-                         'u3': u3_data, 'v3': v3_data})
+    output = dict2class(
+        {
+            "u": u_data,
+            "v": v_data,
+            "u1": u1_data,
+            "v1": v1_data,
+            "u2": u2_data,
+            "v2": v2_data,
+            "u3": u3_data,
+            "v3": v3_data,
+        }
+    )
     return output
 
 
-def format_obs(data, use_flag=True, input_rad=False,
-               verbose=True):
+def format_obs(data, use_flag=True, input_rad=False, verbose=True):
     nwl = len(data.wl)
     nbl = data.vis2.shape[0]
     ncp = data.cp.shape[0]
@@ -602,37 +738,43 @@ def format_obs(data, use_flag=True, input_rad=False,
         e_cp_data = np.rad2deg(e_cp_data)
 
     if not use_flag:
-        flag_V2 = [False]*len(vis2_data)
-        flag_CP = [False]*len(cp_data)
+        flag_V2 = [False] * len(vis2_data)
+        flag_CP = [False] * len(cp_data)
 
     uv = _compute_uvcoord(data)
 
-    wl_data = np.array(list(data.wl)*nbl)
-    wl_data_cp = np.array(list(data.wl)*ncp)
+    wl_data = np.array(list(data.wl) * nbl)
+    wl_data_cp = np.array(list(data.wl) * ncp)
 
     obs = []
-    for i in range(nbl*nwl):
+    for i in range(nbl * nwl):
         if not flag_V2[i]:
             tmp = [uv.u[i], uv.v[i], wl_data[i]]
-            typ = 'V2'
+            typ = "V2"
             obser = vis2_data[i]
             err = e_vis2_data[i]
             obs.append([tmp, typ, obser, err])
     N_v2 = len(obs)
 
-    for i in range(ncp*nwl):
+    for i in range(ncp * nwl):
         if not flag_CP[i]:
-            tmp = [uv.u1[i], uv.u2[i], uv.u3[i], uv.v1[i], uv.v2[i],
-                   uv.v3[i], wl_data_cp[i]]
-            typ = 'CP'
+            tmp = [
+                uv.u1[i],
+                uv.u2[i],
+                uv.u3[i],
+                uv.v1[i],
+                uv.v2[i],
+                uv.v3[i],
+                wl_data_cp[i],
+            ]
+            typ = "CP"
             obser = cp_data[i]
             err = e_cp_data[i]
             obs.append([tmp, typ, obser, err])
     N_cp = len(obs) - N_v2
 
-    Obs = np.array(obs)
+    Obs = np.array(obs, dtype=object)
 
     if verbose:
-        print('\nTotal # of data points: %i (%i V2, %i CP)' %
-              (len(Obs), N_v2, N_cp))
+        print("\nTotal # of data points: %i (%i V2, %i CP)" % (len(Obs), N_v2, N_cp))
     return Obs
