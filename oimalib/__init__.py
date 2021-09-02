@@ -6,6 +6,7 @@ from .plotting import (
     plot_complex_model,
     plot_spectra,
     plot_image_model,
+    plot_dvis,
 )
 from .fitting import smartfit, format_obs
 from .data_selection import select_data

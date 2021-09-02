@@ -10,15 +10,15 @@ Set of function to plot oi data, u-v plan, models, etc.
 """
 
 import numpy as np
+import pkg_resources
 from matplotlib import pyplot as plt
 from matplotlib.colors import PowerNorm
 from scipy.interpolate.interpolate import interp1d
-import pkg_resources
 
 from oimalib.complex_models import visGaussianDisk
-from oimalib.fitting import select_model, check_params_model
+from oimalib.fitting import check_params_model, select_model
 from oimalib.fourier import UVGrid
-from oimalib.tools import mas2rad, rad2mas, substract_run_med
+from oimalib.tools import hide_xlabel, mas2rad, plot_vline, rad2mas, substract_run_med
 
 dic_color = {
     "A0-B2": "#928a97",  # SB
@@ -142,7 +142,7 @@ def plot_tellu(label=None, plot_ind=False, val=5000):
     tellu = np.loadtxt(file_tellu, skiprows=1)
     plt.axvline(np.nan, lw=0.5, c="gray", alpha=0.5, label=label)
     for i in range(len(tellu)):
-        plt.axvline(tellu[i], lw=0.5, c="crimson", ls='--', alpha=0.5)
+        plt.axvline(tellu[i], lw=0.5, c="crimson", ls="--", alpha=0.5)
         if plot_ind:
             plt.text(tellu[i], val, i, fontsize=7, c="crimson")
 
@@ -448,7 +448,6 @@ def plot_oidata(
     ax2.set_xlim(fmin - 2, fmax + 2 + offset)
     ax2.grid(alpha=0.2)
     plt.tight_layout()
-    plt.show(block=False)
     return fig
 
 
@@ -1063,3 +1062,112 @@ def plot_spectra(
         plt.title(title)
     plt.tight_layout()
     return wave, spec
+
+
+def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
+    """
+    Plot differential observables (visibility amplitude and phase).
+
+    Parameters:
+    -----------
+
+    `data` {class}:
+        Interferometric data from load()\n
+    `bounds` {list}:
+        Wavelengths range (by default around Br Gamma line 2.166 µm, [2.14, 2.19]),\n
+    `line` {float}:
+        Vertical line reference to be plotted (by default, Br Gamma line 2.166 µm)\n
+    """
+    if bounds is None:
+        bounds = [2.14, 2.19]
+
+    spectrum = data.flux.mean(axis=0)
+
+    wl = data.wl * 1e6
+
+    flux, wave = substract_run_med(spectrum, wl, div=True)
+
+    cond_wl = (wave >= bounds[0]) & (wave <= bounds[1])
+    cond_wl2 = (wl >= bounds[0]) & (wl <= bounds[1])
+
+    flux = flux[cond_wl]
+    wave = wave[cond_wl]
+
+    dphi = data.dphi
+    dvis = data.dvis
+    blname = data.blname
+
+    linestyle = {"lw": 1}
+
+    fig = plt.figure(figsize=(4, 8.5))
+
+    # ------ PLOT AVERAGED SPECTRUM ------
+    ax = plt.subplot(13, 1, 1)
+    plt.plot(wave, flux, **linestyle)
+    plt.ylabel("Spec.")
+    hide_xlabel()
+
+    if line is not None:
+        plot_vline(line)
+        plt.text(
+            0.57,
+            0.8,
+            r"Br$\gamma$",
+            color="#eab15d",
+            fontsize=8,
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+    ax.tick_params(axis="both", which="major", labelsize=8)
+
+    # ------ PLOT VISIBILITY AMPLITUDE ------
+    for i in range(dvis.shape[0]):
+        ax = plt.subplot(13, 1, 2 + i)
+        plt.step(wl[cond_wl2], dvis[i][cond_wl2], **linestyle)
+        dvis_m = dvis[i][cond_wl2].mean()
+        plt.text(
+            0.92,
+            0.8,
+            blname[i],
+            fontsize=8,
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        plt.ylabel("amp.")
+        hide_xlabel()
+        if line is not None:
+            plot_vline(line)
+
+        ax.tick_params(axis="both", which="major", labelsize=8)
+        plt.ylim(dvis_m - dvis_range, dvis_m + dvis_range)
+
+    # ------ PLOT VISIBILITY PHASE ------
+    for i in range(dphi.shape[0]):
+        ax = plt.subplot(13, 1, 8 + i)
+        plt.step(wl[cond_wl2], dphi[i][cond_wl2], **linestyle)
+        dphi_m = dphi[i][cond_wl2].mean()
+        plt.text(
+            0.92,
+            0.8,
+            blname[i],
+            fontsize=8,
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        plt.ylabel(r"$\phi$ (deg)")
+        if 8 + i != 13:
+            hide_xlabel()
+        else:
+            plt.grid(lw=0.5, alpha=0.5)
+            plt.xlabel(r"$\lambda$ ($\mu$m)")
+        ax.tick_params(axis="both", which="major", labelsize=8)
+        if line is not None:
+            plot_vline(line)
+        plt.ylim(dphi_m - dphi_range, dphi_m + dphi_range)
+
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=0.15, bottom=0.05, top=0.99)
+    return fig

@@ -13,6 +13,7 @@ from astropy import constants as cs
 from bisect import bisect_left, insort
 from collections import deque
 from itertools import islice
+from matplotlib import pyplot as plt
 
 
 def norm(tab):
@@ -34,14 +35,14 @@ def mas2rad(mas):
 
 def round_sci_digit(number):
     """ Rounds a float number with a significant digit number. """
-    ff = str(number).split('.')[0]
-    d = str(number).split('.')[1]
+    ff = str(number).split(".")[0]
+    d = str(number).split(".")[1]
     d, ff = math.modf(number)
     sig_digit = 1
     if ff == 0:
-        res = str(d).split('.')[1]
+        res = str(d).split(".")[1]
         for i in range(len(res)):
-            if float(res[i]) != 0.:
+            if float(res[i]) != 0.0:
                 sig_digit = i + 1
                 break
     else:
@@ -55,10 +56,11 @@ def planck_law(T, wl, norm=False):
     c = cs.c.value
     k = cs.k_B.value
     sigma = cs.sigma_sb.value
-    P = (4 * np.pi**2) * sigma * T**4
+    P = (4 * np.pi ** 2) * sigma * T ** 4
 
-    B = ((2 * h * c**2 * wl**-5) /
-         (np.exp(h * c / (wl * k * T)) - 1)) / 1e6  # W/m2/micron
+    B = (
+        (2 * h * c ** 2 * wl ** -5) / (np.exp(h * c / (wl * k * T)) - 1)
+    ) / 1e6  # W/m2/micron
     if norm:
         res = B / P  # kW/m2/sr/m
     else:
@@ -93,7 +95,7 @@ def _running_median(seq, M):
 
     # Simple lambda function to handle even/odd window sizes
     def median():
-        return s[m] if bool(M & 1) else (s[m-1]+s[m])*0.5
+        return s[m] if bool(M & 1) else (s[m - 1] + s[m]) * 0.5
 
     # Sort it in increasing order and extract the median ("center" of the sorted window)
     s.sort()
@@ -102,8 +104,8 @@ def _running_median(seq, M):
     # Now slide the window by one point to the right for each new position (each pass through
     # the loop). Stop when the item in the right end of the deque contains the last item in seq
     for item in seq:
-        old = d.popleft()          # pop oldest from left
-        d.append(item)             # push newest in from right
+        old = d.popleft()  # pop oldest from left
+        d.append(item)  # push newest in from right
         # locate insertion point and then remove old
         del s[bisect_left(s, old)]
         # insert newest such that new sort is not required
@@ -112,8 +114,7 @@ def _running_median(seq, M):
     return medians
 
 
-def substract_run_med(spectrum, wave=None, n_box=50,
-                      shift_wl=0, div=False):
+def substract_run_med(spectrum, wave=None, n_box=50, shift_wl=0, div=False):
     """ Substract running median from a raw spectrum `f`. The median
     is computed at each points from n_box/2 to -n_box/2+1 in a
     'box' of size `n_box`. The Br gamma line in vaccum and telluric
@@ -122,13 +123,23 @@ def substract_run_med(spectrum, wave=None, n_box=50,
     spectral shift w.r.t. the telluric lines.
     """
     r_med = _running_median(spectrum, n_box)
-    boxed_flux = spectrum[n_box//2:-n_box//2+1]
+    boxed_flux = spectrum[n_box // 2 : -n_box // 2 + 1]
 
     boxed_wave = np.arange(len(boxed_flux))
     if wave is not None:
-        boxed_wave = wave[n_box//2:-n_box//2+1] - shift_wl
+        boxed_wave = wave[n_box // 2 : -n_box // 2 + 1] - shift_wl
 
     res = boxed_flux - r_med
     if div:
         res = boxed_flux / r_med
     return res, boxed_wave
+
+
+def hide_xlabel():
+    frame1 = plt.gca()
+    frame1.axes.xaxis.set_ticklabels([])
+    plt.grid(lw=0.5, alpha=0.5)
+
+
+def plot_vline(x, color="#eab15d"):
+    plt.axvline(x, lw=1, color=color, zorder=-1, alpha=0.5)
