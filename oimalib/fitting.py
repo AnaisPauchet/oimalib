@@ -50,6 +50,14 @@ def select_model(name):
         model = complex_models.visLorentzDisk
     elif name == "yso":
         model = complex_models.visYSO
+    elif name == "lazareff":
+        model = complex_models.visLazareff
+    elif name == "ellipsoid":
+        model = complex_models.visEllipsoid
+    elif name == "cont":
+        model = complex_models.visCont
+    elif name == "bohn":
+        model = complex_models.get_full_visibility
     else:
         model = None
     return model
@@ -71,13 +79,50 @@ def check_params_model(param):
         dm = param["dm"]
         if dm < 0:
             isValid = False
-    elif param["model"] == "yso":
-        cosi = param["cosi"]
+    elif param["model"] == "lazareff":
+        la = param["la"]
+        lk = param["lk"]
+
+        incl = param["incl"]
         pa = param["pa"]
         fs = param["fs"]
         fc = param["fc"]
         fh = 1 - fs - fc
-        if (cosi > 1) or (fs + fh + fc != 1) or (pa < 0) or (pa > 180):
+        cond_flux = (fs >= 0) & (fc >= 0)
+
+        c1 = fs + fh + fc != 1
+        c2 = (incl > 90.0) | (incl < 0)
+        c3 = (pa < 0) | (pa > 180)
+        c4 = np.invert(cond_flux)
+        c5 = (la < -1) | (la > 1.5)
+        c6 = (lk < -1) | (lk > 1.0)
+        if c1 | c2 | c3 | c4 | c5 | c6:
+            log = (
+                "# fs + fh + fc = 1,\n"
+                + "# 0 < incl < 90,\n"
+                + "# 0 < pa < 180 deg,\n"
+                + "# -1 < la < 1.5,\n"
+                + "# -1 < lk < 1.\n"
+            )
+            isValid = False
+    elif param["model"] == "yso":
+        incl = param["incl"]
+        hfr = param["hfr"]
+        pa = param["pa"]
+        fs = param["fs"]
+        fc = param["fc"]
+        flor = param["flor"]
+        fh = 1 - fs - fc
+        cond_flux = (fs >= 0) & (fc >= 0)
+
+        c1 = fs + fh + fc != 1
+        c2 = (incl > 90.0) | (incl < 0)
+        c3 = (pa < 0) | (pa > 180)
+        c4 = hfr < 0
+        c5 = np.invert(cond_flux)
+        c6 = (flor < 0) | (flor > 1)
+        if c1 | c2 | c3 | c4 | c5 | c6:
+            log = "# cosi <= 1,\n# hfr > 0 mas,\n# 0 < pa < 180 deg."
             isValid = False
 
     return isValid, log
@@ -157,6 +202,9 @@ def model_standard(obs, param):
             if typ == "V2":
                 X = obs[i][0]
                 mod = comput_V2(X, param, model_target)
+            elif typ == "V":
+                X = obs[i][0]
+                mod = comput_V2(X, param, model_target) ** 0.5
             elif typ == "CP":
                 X = obs[i][0]
                 mod = comput_CP(X, param, model_target)
@@ -477,7 +525,7 @@ def compute_chi2_curve(
         ftol=1e-8,
         epsfcn=1e-6,
         multiproc=False,
-        verbose=False,
+        verbose=True,
     )
 
     # fit_chi2 = fit['chi2']
@@ -491,7 +539,7 @@ def compute_chi2_curve(
         lfits = smartfit(
             obs,
             params,
-            normalizeErrors=True,
+            normalizeErrors=False,
             fitCP=fitCP,
             onlyCP=onlyCP,
             fitOnly=fitOnly,
@@ -507,6 +555,9 @@ def compute_chi2_curve(
 
     l_chi2r = np.array(l_chi2r)
     l_chi2 = np.array(l_chi2r) * (n_pts - (n_freedom - 1))
+
+    plt.figure()
+    plt.plot(array_params, l_chi2r)
 
     chi2r_m = l_chi2r.min()
     chi2_m = l_chi2.min()
@@ -527,6 +578,8 @@ def compute_chi2_curve(
         # dr1_r, dig = round_sci_digit(dr1_r)
         # dr2_r = round_sci_digit(dr2_r)[0]
         fitted_param = float(np.round(fitted_param, 2))
+        dr1_r = float(np.round(dr1_r, 2))
+        dr2_r = float(np.round(dr2_r, 2))
         print("sig_chi2: %s = %s - %s + %s" % (name_param, fitted_param, dr1_r, dr2_r))
     except ValueError:
         print("Try to increase the parameters bounds (chi2_r).")
@@ -538,7 +591,7 @@ def compute_chi2_curve(
     errors_chi2 = np.mean([dr1_r, dr2_r])
 
     # fit_e_theta, scidigit = round_sci_digit(fit_e_theta)
-    fit_theta = float(np.round(fit_theta, 3))
+    # fit_theta = float(np.round(fit_theta, 3))
 
     plt.figure()
     plt.plot(
@@ -551,7 +604,7 @@ def compute_chi2_curve(
         ".",
         color="#fc5185",
         ms=10,
-        label="fit: %s=%s±%s" % (name_param, fit_theta, fit_e_theta),
+        label="fit: %s=%2.2f±%2.2f" % (name_param, fit_theta, fit_e_theta),
     )
     plt.axvspan(
         fitted_param - dr1_r,
@@ -592,8 +645,9 @@ def smartfit(
     normalizeErrors=False,
     scale_err=1,
     fitCP=True,
+    fitVis=False,
     onlyCP=False,
-    verbose=True,
+    verbose=False,
 ):
     """
     Perform the fit of V2 and CP data contained in the obs tuple.
@@ -721,7 +775,7 @@ def _compute_uvcoord(data):
     return output
 
 
-def format_obs(data, use_flag=True, input_rad=False, verbose=True):
+def format_obs(data, use_flag=True, input_rad=False, verbose=False):
     nwl = len(data.wl)
     nbl = data.vis2.shape[0]
     ncp = data.cp.shape[0]
@@ -729,6 +783,10 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=True):
     vis2_data = data.vis2.flatten()
     e_vis2_data = data.e_vis2.flatten()
     flag_V2 = data.flag_vis2.flatten()
+
+    # dvis_data = data.dvis.flatten()
+    # e_dvis_data = data.e_dvis.flatten()
+    # flag_dvis = data.flag_dvis.flatten()
 
     cp_data = data.cp.flatten()
     e_cp_data = data.e_cp.flatten()
@@ -740,6 +798,7 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=True):
     if not use_flag:
         flag_V2 = [False] * len(vis2_data)
         flag_CP = [False] * len(cp_data)
+        flag_dvis = [False] * len(dvis_data)
 
     uv = _compute_uvcoord(data)
 
@@ -753,8 +812,18 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=True):
             typ = "V2"
             obser = vis2_data[i]
             err = e_vis2_data[i]
-            obs.append([tmp, typ, obser, err])
+            if ~np.isnan(obser) | ~np.isnan(err):
+                obs.append([tmp, typ, obser, err])
     N_v2 = len(obs)
+
+    # for i in range(nbl * nwl):
+    #     if not flag_dvis[i]:
+    #         tmp = [uv.u[i], uv.v[i], wl_data[i]]
+    #         typ = "V"
+    #         obser = dvis_data[i]
+    #         err = e_dvis_data[i]
+    #         obs.append([tmp, typ, obser, err])
+    # N_vis = len(obs) - N_v2
 
     for i in range(ncp * nwl):
         if not flag_CP[i]:
@@ -771,7 +840,7 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=True):
             obser = cp_data[i]
             err = e_cp_data[i]
             obs.append([tmp, typ, obser, err])
-    N_cp = len(obs) - N_v2
+    N_cp = len(obs) - N_v2  # - N_vis
 
     Obs = np.array(obs, dtype=object)
 

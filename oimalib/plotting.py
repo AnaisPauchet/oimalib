@@ -13,12 +13,20 @@ import numpy as np
 import pkg_resources
 from matplotlib import pyplot as plt
 from matplotlib.colors import PowerNorm
+from termcolor import cprint
 from scipy.interpolate.interpolate import interp1d
-
+from scipy.constants import c as c_light
 from oimalib.complex_models import visGaussianDisk
 from oimalib.fitting import check_params_model, select_model
 from oimalib.fourier import UVGrid
-from oimalib.tools import hide_xlabel, mas2rad, plot_vline, rad2mas, substract_run_med
+from oimalib.tools import (
+    hide_xlabel,
+    mas2rad,
+    plot_vline,
+    rad2mas,
+    substract_run_med,
+    rad2arcsec,
+)
 
 dic_color = {
     "A0-B2": "#928a97",  # SB
@@ -73,7 +81,7 @@ def _update_color_bl(tab):
     i_cycle = 0
     for j in range(len(tab)):
         data = tab[j]
-        nbl = data.vis2.shape[0]
+        nbl = data.blname.shape[0]
         for i in range(nbl):
             base = data.blname[i]
             if base not in dic_color.keys():
@@ -149,26 +157,32 @@ def plot_tellu(label=None, plot_ind=False, val=5000):
 
 def _plot_uvdata_coord(tab, ax=None, rotation=0):
     """ Plot u-v coordinated of a bunch of data (see `plot_uv()`). """
-    if type(tab) != list:
+    if (type(tab) != list) & (type(tab) != np.ndarray):
         tab = [tab]
 
     dic_color = _update_color_bl(tab)
 
     list_bl = []
     for data in tab:
-        nbl = data.vis2.shape[0]
+        nbl = data.blname.shape[0]
         for bl in range(nbl):
             flag = np.invert(data.flag_vis2[bl])
             u = data.u[bl] / data.wl[flag] / 1e6
             v = data.v[bl] / data.wl[flag] / 1e6
             base, label = data.blname[bl], ""
+
+            vis2 = data.vis2[bl]
+            if len(vis2[~np.isnan(vis2)]) == 0:
+                continue
+
             if base not in list_bl:
                 label = base
                 list_bl.append(base)
+
             p_color = dic_color[base]
             angle = np.deg2rad(rotation)
-            um = u * np.cos(angle) - v * np.sin(angle)
-            vm = u * np.sin(angle) + v * np.cos(angle)
+            um = np.squeeze(u * np.cos(angle) - v * np.sin(angle))
+            vm = np.squeeze(u * np.sin(angle) + v * np.cos(angle))
             ax.plot(um, vm, color=p_color, label=label, marker="o", ms=4)
             ax.plot(-um, -vm, ms=4, color=p_color, marker="o")
     return None
@@ -187,6 +201,10 @@ def plot_oidata(
     ms_model=2,
     set_cp=1,
     color=False,
+    plot_vis2=True,
+    force_freq=None,
+    title="",
+    mega=False,
 ):
     """
     Plot the interferometric data (and the model if required).
@@ -211,9 +229,8 @@ def plot_oidata(
     `is_nrm` {boolean}:
         If True, data come from NRM data.
     """
-    # global dic_color
 
-    if type(tab) == list:
+    if (type(tab) == list) | (type(tab) == np.ndarray):
         data = tab[0]
     else:
         data = tab
@@ -224,23 +241,44 @@ def plot_oidata(
     array_name = data.info["Array"]
     l_fmin, l_fmax = [], []
 
-    for data in tab:
-        tfmax = data.freq_vis2.flatten().max()
-        tfmin = data.freq_vis2.flatten().min()
+    list_triplet = []
+    for _ in tab:
+        for i in range(len(_.cpname)):
+            list_triplet.append(_.cpname[i])
+    list_triplet = np.array(list_triplet)
+
+    for _ in tab:
+        tfmax = _.freq_vis2.flatten().max()
+        tmp = _.freq_vis2.flatten()
+        tfmin = tmp[tmp != 0].min()
         l_fmax.append(tfmax)
         l_fmin.append(tfmin)
 
-    fmin = np.array(l_fmin).min()
-    fmax = np.array(l_fmax).max()
+    ff = 1
+    if mega:
+        ff = (1.0 / mas2rad(1000)) / 1e6
+    l_fmin = np.array(l_fmin) * ff
+    l_fmax = np.array(l_fmax) * ff
 
-    ncp_master = len(set(data.cpname))
+    if len(l_fmin) == 1:
+        fmin = l_fmin[0]
+    else:
+        fmin = np.min(l_fmin)
+    fmax = l_fmax.max()
+
+    ncp_master = len(set(list_triplet))
 
     fig = plt.figure(figsize=(8, 6))
     ax1 = plt.subplot2grid((5, 1), (0, 0), rowspan=3)
-
+    ax1.set_title(title, fontsize=14)
     list_bl = []
     # PLOT VIS2 DATA AND MODEL IF ANY (mod_v2)
     # ----------------------------------------
+
+    if plot_vis2:
+        ylabel = r"V$^2$"
+    else:
+        ylabel = r"Vis. Amp."
 
     ndata = len(tab)
     for j in range(ndata):
@@ -254,15 +292,26 @@ def plot_oidata(
                 sel_flag = [True] * nwl
 
             freq_vis2 = data.freq_vis2[i][sel_flag]
-            vis2 = data.vis2[i][sel_flag]
-            e_vis2 = data.e_vis2[i][sel_flag]
+            if plot_vis2:
+                vis2 = data.vis2[i][sel_flag]
+                e_vis2 = data.e_vis2[i][sel_flag]
+            else:
+                vis2 = data.dvis[i][sel_flag]
+                e_vis2 = data.e_dvis[i][sel_flag]
+
             base, label = data.blname[i], ""
             wave = data.wl[sel_flag]
+
+            if len(vis2[~np.isnan(vis2)]) == 0:
+                continue
 
             if base not in list_bl:
                 label = base
                 list_bl.append(base)
 
+            if mega:
+                freq_vis2 = freq_vis2 * (1.0 / mas2rad(1000)) / 1e6
+        
             if is_nrm:
                 p_color = "tab:blue"
                 ax1.errorbar(
@@ -302,7 +351,10 @@ def plot_oidata(
                         )
 
             if mod_v2 is not None:
-                mod = mod_v2[j][i][sel_flag]
+                if plot_vis2:
+                    mod = mod_v2[j][i][sel_flag]
+                else:
+                    mod = mod_v2[j][i][sel_flag] ** 0.5
                 ax1.plot(
                     freq_vis2,
                     mod,
@@ -338,6 +390,9 @@ def plot_oidata(
     offset = 0
     if data.info["Array"] == "CHARA":
         offset = 150
+
+    if force_freq is not None:
+        fmin, fmax = force_freq[0], force_freq[1]
     ax1.set_xlim(fmin - 2, fmax + 2 + offset)
     if not color:
         handles, labels = ax1.get_legend_handles_labels()
@@ -356,7 +411,7 @@ def plot_oidata(
         # cb.set_label(r"$\lambda$ [µm]")
         cb.ax.set_title(r"$\lambda$ [µm]", fontsize=9)
     # ax1.legend(fontsize=7)
-    ax1.set_ylabel(r"V$^2$", fontsize=12)
+    ax1.set_ylabel(ylabel, fontsize=12)
     ax1.grid(alpha=0.3)
 
     # PLOT CP DATA AND MODEL IF ANY (mod_cp)
@@ -370,16 +425,39 @@ def plot_oidata(
             fontsize = 7
             if set_cp == 0:
                 ax2.set_prop_cycle(
-                    "color", ["#f4dfcc", "#fa9583", "#2f4159", "#4097aa"]
+                    "color",
+                    [
+                        "#f4dfcc",
+                        "#fa9583",
+                        "#2f4159",
+                        "#4097aa",
+                        "#82b4bb",
+                        "#ae3c60",
+                        "#eabd6f",
+                        "#96d47c",
+                    ],
                 )
             elif set_cp == 1:
                 ax2.set_prop_cycle(
-                    "color", ["#eabd6f", "#fa9583", "#3a6091", "#79ab8e"]
+                    "color",
+                    [
+                        "#eabd6f",
+                        "#fa9583",
+                        "#3a6091",
+                        "#79ab8e",
+                        "#82b4bb",
+                        "#ae3c60",
+                        "#eabd6f",
+                        "#96d47c",
+                    ],
                 )
             elif set_cp == 2:
                 ax2.set_prop_cycle(
                     "color", ["#79ab8e", "#5c95a8", "#fa9583", "#263a55"]
                 )
+            else:
+                ax2.set_prop_cycle("color", plt.cm.turbo(np.linspace(0, 1, ncp_master)))
+
         else:
             fontsize = 7
             ax2.set_prop_cycle("color", plt.cm.Set2(np.linspace(0, 1, 8)))
@@ -392,8 +470,8 @@ def plot_oidata(
     for j in range(len(tab)):
         data = tab[j]
         ncp = data.cp.shape[0]
+        color_cp = None
         for i in range(ncp):
-
             if use_flag:
                 sel_flag = np.invert(data.flag_cp[i])
             else:
@@ -403,6 +481,12 @@ def plot_oidata(
             cp = data.cp[i][sel_flag]
             e_cp = data.e_cp[i][sel_flag]
             wave = data.wl[sel_flag]
+            
+            if mega:
+                freq_cp = freq_cp * (1.0 / mas2rad(1000)) / 1e6
+
+            if len(cp[~np.isnan(cp)]) == 0:
+                continue
 
             dic_index = _create_match_tel(data)
             b1 = dic_index[data.index_cp[i][0]]
@@ -463,7 +547,8 @@ def plot_uv(tab, bmax=150, rotation=0):
     `bmax` {float}:
         Limits of the plot [Mlambda],\n
     """
-    if type(tab) == list:
+
+    if (type(tab) == list) or (type(tab) == np.ndarray):
         wl_ref = np.mean(tab[0].wl) * 1e6
     else:
         wl_ref = np.mean(tab.wl) * 1e6
@@ -534,8 +619,8 @@ def plot_residuals(
     freq_cp, cp, e_cp, wl_cp, cond_cp = data_cp
 
     if mega:
-        freq_vis2 = freq_vis2 * 206264.806247 / 1e6
-        freq_cp = freq_cp * 206264.806247 / 1e6
+        freq_vis2 = freq_vis2 * (1.0 / mas2rad(1000)) / 1e6
+        freq_cp = freq_cp * (1.0 / mas2rad(1000)) / 1e6
 
     if (mod_v2 is None) or (mod_cp is None):
         return None
@@ -815,9 +900,11 @@ def plot_image_model(
     fov=400,
     blm=130,
     fwhm_apod=1e2,
-    hamming=False,
+    hamming=True,
     cont=False,
     p=0.5,
+    obs=None,
+    corono=False,
 ):
     """
     Make the image of the `multiCompoPwhl` function.
@@ -873,20 +960,21 @@ def plot_image_model(
     modelname = param["model"]
     model_target = select_model(modelname)
 
-    isValid = check_params_model(param)[0]
-
+    isValid, log = check_params_model(param)
     if not isValid:
+        cprint("Model %s not valid:" % param["model"], "cyan")
+        cprint(log, "cyan")
         return None
 
     vis = model_target(Utable, Vtable, wl, param)
 
-    param_psf = {"fwhm": wl / (2 * base_max), "x0": 0, "y0": 0}
+    param_psf = {"fwhm": rad2mas(wl / (2 * base_max)), "x0": 0, "y0": 0}
 
     conv_psf = visGaussianDisk(Utable, Vtable, wl, param_psf)
 
     # Apodisation
     x, y = np.meshgrid(range(npts), range(npts))
-    freq_max = bmax / wl / 206264.806247 / 2.0
+    freq_max = rad2arcsec(bmax / wl) / 2.0
     pix_vis = 2 * freq_max / npts
     freq_map = np.sqrt((x - (npts / 2.0)) ** 2 + (y - (npts / 2.0)) ** 2) * pix_vis
 
@@ -901,14 +989,14 @@ def plot_image_model(
     img_apod = f(freq_map.flat).reshape(freq_map.shape)
 
     # Reshape because all visibililty are calculated in 1D array (faster computing)
-    im_vis = vis.reshape(npts, -1) * img_apod
+    im_vis = vis.reshape(npts, -1)  # * img_apod
     fftVis = np.fft.ifft2(im_vis)
 
     amp = abs(vis)
     phi = np.arctan2(vis.imag, vis.real)
 
     x_u = Utable / wl
-    freq_s_x = x_u[0:npts] / 206264.806247
+    freq_s_x = rad2arcsec(x_u[0:npts])
     extent_vis = (freq_s_x.min(), freq_s_x.max(), freq_s_x.min(), freq_s_x.max())
 
     # Create an image
@@ -932,15 +1020,33 @@ def plot_image_model(
     tmp = np.fliplr(image)
     image_orient = tmp / np.max(tmp)
     ima_conv_orient = np.fliplr(ima_conv)
+    ima_conv_orient /= np.max(ima_conv_orient)
+    rb = rad2arcsec(2 * blm / wl)
 
-    rb = (blm / wl) / 206264.806247
+    # image_orient[image_orient < 0.02] = 0
+    corono = True
+    if corono:
+        image_orient[npts // 2, npts // 2 - 1] = 0
+        image_orient /= np.max(image_orient)
 
     plt.figure(figsize=(13, 3.5), dpi=120)
     plt.subplots_adjust(
         left=0.05, bottom=0.05, right=0.99, top=1, wspace=0.18, hspace=0.25
     )
     plt.subplot(1, 4, 1)
-    plt.imshow(im_amp, origin="lower", extent=extent_vis)
+    plt.imshow(im_amp ** 2, origin="lower", extent=extent_vis)
+    if obs is not None:
+        save_obs = obs.copy()
+        cond = save_obs[:, 1] == "V2"
+        obs = save_obs[cond]
+        for i in range(len(obs)):
+            u = obs[i][0][0]
+            v = obs[i][0][1]
+            wl = obs[i][0][2]
+            u_freq = rad2arcsec(u / wl)  # / (1/mas2rad(1000))
+            v_freq = rad2arcsec(v / wl)  # / (1/mas2rad(1000))
+            plt.scatter(u_freq, v_freq, s=4, marker="o", alpha=0.3, color="r")
+            plt.scatter(-u_freq, -v_freq, s=4, marker="o", alpha=0.3, color="r")
     plt.axis([-rb, rb, -rb, rb])
     plt.xlabel("Sp. Freq [cycles/arcsec]")
     plt.ylabel("Sp. Freq [cycles/arcsec]")
@@ -951,6 +1057,7 @@ def plot_image_model(
     plt.xlabel("Sp. Freq [cycles/arcsec]")
     plt.ylabel("Sp. Freq [cycles/arcsec]")
     plt.axis([-rb, rb, -rb, rb])
+
     plt.subplot(1, 4, 3)
     from matplotlib.colors import LogNorm
 
@@ -1007,6 +1114,10 @@ def plot_spectra(
     f_range=None,
     tellu=False,
     title=None,
+    rest=0,
+    speed=False,
+    d_speed=1000,
+    norm=True,
 ):
 
     spectra = data.flux
@@ -1019,12 +1130,19 @@ def plot_spectra(
     n_spec = spectra.shape[0]
     l_spec, l_wave = [], []
     for i in range(n_spec):
-        flux, wave = substract_run_med(spectra[i], wave_cal, div=div)
+        if norm:
+            flux, wave = substract_run_med(spectra[i], wave_cal, div=div)
+        else:
+            flux, wave = spectra[i], wave_cal
         l_spec.append(flux)
         l_wave.append(wave * 1e6 - offset)
 
     spec = np.array(l_spec).T
-    wave = np.array(l_wave)[0]
+
+    if speed:
+        wave = ((np.array(l_wave)[0] - rest) / rest) * c_light / 1e3
+    else:
+        wave = np.array(l_wave)[0]
 
     if aver:
         spec = np.mean(spec, axis=1)
@@ -1050,7 +1168,11 @@ def plot_spectra(
         labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: t[0]))
         ax.legend(handles, labels, fontsize=7)
 
-    plt.xlim(wl_lim[0] - wl_lim[1], wl_lim[0] + wl_lim[1])
+    if not speed:
+        plt.xlim(wl_lim[0] - wl_lim[1], wl_lim[0] + wl_lim[1])
+    else:
+        plt.xlim(-d_speed, d_speed)
+
     plt.grid(alpha=0.2)
     if tellu:
         plot_tellu()
@@ -1081,11 +1203,19 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
     if bounds is None:
         bounds = [2.14, 2.19]
 
-    spectrum = data.flux.mean(axis=0)
+    bounds2 = [bounds[0] - 0.001, bounds[1] + 0.001]
+
+    if len(data.flux.shape) == 1:
+        spectrum = data.flux
+    else:
+        spectrum = data.flux.mean(axis=0)
 
     wl = data.wl * 1e6
 
-    flux, wave = substract_run_med(spectrum, wl, div=True)
+    try:
+        flux, wave = substract_run_med(spectrum, wl, div=True)
+    except IndexError:
+        flux, wave = spectrum, wl
 
     cond_wl = (wave >= bounds[0]) & (wave <= bounds[1])
     cond_wl2 = (wl >= bounds[0]) & (wl <= bounds[1])
@@ -1105,7 +1235,6 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
     ax = plt.subplot(13, 1, 1)
     plt.plot(wave, flux, **linestyle)
     plt.ylabel("Spec.")
-    hide_xlabel()
 
     if line is not None:
         plot_vline(line)
@@ -1120,53 +1249,120 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
             transform=ax.transAxes,
         )
     ax.tick_params(axis="both", which="major", labelsize=8)
-
+    hide_xlabel()
+    plt.xlim(bounds2)
     # ------ PLOT VISIBILITY AMPLITUDE ------
     for i in range(dvis.shape[0]):
-        ax = plt.subplot(13, 1, 2 + i)
-        plt.step(wl[cond_wl2], dvis[i][cond_wl2], **linestyle)
-        dvis_m = dvis[i][cond_wl2].mean()
-        plt.text(
-            0.92,
-            0.8,
-            blname[i],
-            fontsize=8,
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-        )
-        plt.ylabel("amp.")
-        hide_xlabel()
-        if line is not None:
-            plot_vline(line)
+        ax = plt.subplot(13, 1, 2 + i, sharex=ax)
 
-        ax.tick_params(axis="both", which="major", labelsize=8)
-        plt.ylim(dvis_m - dvis_range, dvis_m + dvis_range)
+        data_dvis = dvis[i][cond_wl2]
+        dvis_m = data_dvis[~np.isnan(data_dvis)].mean()
+
+        if not np.isnan(dvis_m):
+            plt.step(wl[cond_wl2], data_dvis, **linestyle)
+            plt.text(
+                0.92,
+                0.8,
+                blname[i],
+                fontsize=8,
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+            plt.ylabel("amp.")
+            if line is not None:
+                plot_vline(line)
+
+            plt.ylim(dvis_m - dvis_range, dvis_m + dvis_range)
+            ax.tick_params(axis="both", which="major", labelsize=8)
+            hide_xlabel()
+            plt.xlim(bounds2)
+        else:
+            # frame1 = plt.gca()
+            # frame1.axes.get_xaxis().set_visible(False)
+            # frame1.axes.get_yaxis().set_visible(False)
+            plt.xlim(bounds2)
+            plt.xticks([])
+            plt.yticks([])
+            plt.ylabel("amp.")
+            plt.text(
+                0.92,
+                0.8,
+                blname[i],
+                fontsize=8,
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+
+            plt.text(
+                0.5,
+                0.5,
+                "Not available",
+                color="red",
+                fontsize=8,
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
 
     # ------ PLOT VISIBILITY PHASE ------
     for i in range(dphi.shape[0]):
-        ax = plt.subplot(13, 1, 8 + i)
-        plt.step(wl[cond_wl2], dphi[i][cond_wl2], **linestyle)
-        dphi_m = dphi[i][cond_wl2].mean()
-        plt.text(
-            0.92,
-            0.8,
-            blname[i],
-            fontsize=8,
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-        )
-        plt.ylabel(r"$\phi$ (deg)")
-        if 8 + i != 13:
-            hide_xlabel()
+        ax = plt.subplot(13, 1, 8 + i, sharex=ax)
+
+        if np.diff(dphi[i][cond_wl2]).mean() != 0:
+            plt.step(wl[cond_wl2], dphi[i][cond_wl2], **linestyle)
+            dphi_m = dphi[i][cond_wl2].mean()
+            plt.text(
+                0.92,
+                0.8,
+                blname[i],
+                fontsize=8,
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+            plt.ylabel(r"$\phi$ (deg)")
+            if 8 + i != 13:
+                hide_xlabel()
+            else:
+                plt.grid(lw=0.5, alpha=0.5)
+                plt.xlabel(r"$\lambda$ ($\mu$m)")
+            ax.tick_params(axis="both", which="major", labelsize=8)
+            if line is not None:
+                plot_vline(line)
+            plt.ylim(dphi_m - dphi_range, dphi_m + dphi_range)
+            plt.xlim(bounds2)
         else:
-            plt.grid(lw=0.5, alpha=0.5)
-            plt.xlabel(r"$\lambda$ ($\mu$m)")
-        ax.tick_params(axis="both", which="major", labelsize=8)
-        if line is not None:
-            plot_vline(line)
-        plt.ylim(dphi_m - dphi_range, dphi_m + dphi_range)
+            if 8 + i != 13:
+                plt.xticks([])
+                plt.yticks([])
+            else:
+                plt.xlabel(r"$\lambda$ ($\mu$m)")
+                ax.tick_params(axis="both", which="major", labelsize=8)
+
+            plt.ylabel(r"$\phi$ (deg)")
+            plt.text(
+                0.92,
+                0.8,
+                blname[i],
+                fontsize=8,
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+
+            plt.text(
+                0.5,
+                0.5,
+                "Not available",
+                color="red",
+                fontsize=8,
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+            plt.xlim(bounds2)
 
     plt.tight_layout()
     plt.subplots_adjust(hspace=0.15, bottom=0.05, top=0.99)

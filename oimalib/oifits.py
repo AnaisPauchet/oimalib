@@ -10,6 +10,7 @@ OIFITS related function.
 """
 
 from glob import glob
+from math import isnan
 
 import numpy as np
 from astropy.io import fits
@@ -560,7 +561,7 @@ def dir2data(filedir):
     return tab
 
 
-def load(namefile, cam="SC"):
+def load(namefile, cam="SC", simu=False):
     fitsHandler = fits.open(namefile)
 
     # OI_TARGET table
@@ -576,16 +577,27 @@ def load(namefile, cam="SC"):
     else:
         index_cam = 1
 
-    wave = fitsHandler["OI_WAVELENGTH", index_cam].data.field("EFF_WAVE")
+    if simu:
+        index_cam = None
+
+    try:
+        wave = fitsHandler["OI_WAVELENGTH", index_cam].data.field("EFF_WAVE")
+    except KeyError:
+        wave = np.zeros(1)
 
     # OI_FLUX table
     try:
         spectre = fitsHandler["OI_FLUX", index_cam].data.field("FLUXDATA")
+        sta_index = fitsHandler["OI_FLUX", index_cam].data.field("STA_INDEX")
     except KeyError:
-        spectre = fitsHandler["OI_FLUX", index_cam].data.field("FLUX")
+        try:
+            spectre = fitsHandler["OI_FLUX", index_cam].data.field("FLUX")
+            sta_index = fitsHandler["OI_FLUX", index_cam].data.field("STA_INDEX")
+        except KeyError:
+            spectre = np.zeros(1)
+            sta_index = np.zeros(1)
 
     nspec = spectre.shape[0]
-    sta_index = fitsHandler["OI_FLUX", index_cam].data.field("STA_INDEX")
 
     # OI_ARRAY table
     index_ref = fitsHandler["OI_ARRAY"].data.field("STA_INDEX")
@@ -593,10 +605,14 @@ def load(namefile, cam="SC"):
     array = fitsHandler["OI_ARRAY"].header["ARRNAME"]
 
     dic_index = _compute_dic_index(index_ref, teles_ref)
-
+    
     tel = []
     for i in range(nspec):
-        tel.append(dic_index[sta_index[i]])
+        try:
+            tel.append(dic_index[sta_index[i]])
+        except KeyError:
+            pass
+    tel = np.array(tel)
 
     # OI_T3 table
     cp = fitsHandler["OI_T3", index_cam].data.field("T3PHI")
@@ -626,6 +642,15 @@ def load(namefile, cam="SC"):
     e_dphi = fitsHandler["OI_VIS", index_cam].data.field("VISPHIERR")
     flag_dvis = fitsHandler["OI_VIS", index_cam].data.field("FLAG")
 
+    try:
+        mjd = fitsHandler[0].header["MJD-OBS"]
+    except KeyError:
+        mjd = np.nan
+    try:
+        dat = fitsHandler[0].header["DATE-OBS"]
+    except KeyError:
+        dat = np.nan
+
     info = {
         "Ins": ins,
         "Index": index_ref,
@@ -635,8 +660,9 @@ def load(namefile, cam="SC"):
         "Array": array,
         "nbl": len(u),
         "ncp": len(u1),
-        "mjd": fitsHandler[0].header["MJD-OBS"],
-        "Date": fitsHandler[0].header["DATE-OBS"],
+        "mjd": mjd,
+        "Date": dat,
+        "filename": namefile,
     }
 
     # Compute freq, blname

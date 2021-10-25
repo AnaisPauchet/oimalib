@@ -360,7 +360,7 @@ def compute_geom_model(data, param, verbose=False):
     if verbose:
         print("Execution time compute_geom_model: %2.3f s" % (time.time() - start_time))
 
-    if ndata == 1:
-        return l_mod_v2[0], l_mod_cp[0]
-    else:
-        return l_mod_v2, l_mod_cp
+    # if ndata == 1:
+    #    return l_mod_v2[0], l_mod_cp[0]
+    # else:
+    return l_mod_v2, l_mod_cp

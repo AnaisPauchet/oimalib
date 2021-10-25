@@ -5,14 +5,86 @@ Created on Wed Nov  4 13:14:23 2015
 @author: asoulain
 """
 
+from erfa.core import ut1utc
 import numpy as np
 from matplotlib import pyplot as plt
+from numpy.core.shape_base import vstack
 from scipy import special
 from termcolor import cprint
+from scipy.special import j0, jn
 
 from .binary import getBinaryPos, kepler_solve
 from .fourier import shiftFourier
 from .tools import mas2rad, planck_law, rad2mas
+
+
+def _elong_gauss_disk(u, v, pa, majorAxis, minorAxis):
+    U = (u * np.sin(pa) + v * np.cos(pa)) * majorAxis
+    V = (u * np.cos(pa) - v * np.sin(pa)) * minorAxis
+    r2 = ((np.pi ** 2) * (U ** 2 + V ** 2)) / (np.log(2.0))
+    C_centered = np.exp(-r2)
+    return C_centered
+
+
+def _elong_lorentz_disk(u, v, pa, majorAxis, minorAxis):
+    U = (u * np.sin(pa) + v * np.cos(pa)) * majorAxis
+    V = (u * np.cos(pa) - v * np.sin(pa)) * minorAxis
+    r2 = (
+        (2 * np.pi) * (((U ** 2 + V ** 2) ** 0.5)) / np.sqrt(3)
+    )  # (2.31 close to gaussian fwhm)
+    C_centered = np.exp(-r2)
+    return C_centered
+
+
+def _elong_thick_ring(u, v, pa, majorAxis, minorAxis):
+    U = (u * np.sin(pa) + v * np.cos(pa)) * majorAxis
+    V = (u * np.cos(pa) - v * np.sin(pa)) * minorAxis
+    r = np.sqrt(U ** 2 + V ** 2)
+    C_centered = special.j0(np.pi * r)
+    return C_centered
+
+
+def _azimuth_modulation_mod(u, v, lam, pa, cosi, ar, cj, sj):
+    q = np.sqrt(u ** 2 + v ** 2) / lam
+    psi = np.arctan2(v, -u) + np.pi
+
+    rho_j = np.sqrt(cj ** 2 + sj ** 2)
+    theta_j = np.arctan2(sj, -cj) + np.pi / 2
+    theta = pa
+
+    sum_mod = complex(0, 0)
+    if not hasattr(cj, "__len__"):
+        sum_mod += (
+            ((-1j) ** 1)
+            * rho_j
+            * np.cos(1 * (psi - theta - theta_j))
+            * special.jn(
+                2
+                * np.pi
+                * q
+                * ar
+                * np.sqrt((np.cos(psi - theta) * cosi) ** 2 + np.sin(psi - theta) ** 2),
+                1,
+            )
+        )
+    else:
+        for i in range(1, len(rho_j) + 1):
+            sum_mod += (
+                (-1j) ** i
+                * rho_j[i - 1]
+                * np.cos(i * (psi - theta - theta_j[i - 1]))
+                * special.jn(
+                    2
+                    * np.pi
+                    * q
+                    * ar
+                    * np.sqrt(
+                        (np.cos(psi - theta) * cosi) ** 2 + np.sin(psi - theta) ** 2
+                    ),
+                    i,
+                )
+            )
+    return sum_mod
 
 
 def visPointSource(Utable, Vtable, Lambda, param):
@@ -143,7 +215,7 @@ def visGaussianDisk(Utable, Vtable, Lambda, param):
     Params:
     -------
     fwhm: {float}
-        fwhm of the disk [rad],\n
+        fwhm of the disk [mas],\n
     x0, y0: {float}
         Shift along x and y position [rad].
     """
@@ -158,8 +230,10 @@ def visGaussianDisk(Utable, Vtable, Lambda, param):
     r2 = ((np.pi * q * fwhm) ** 2) / (4 * np.log(2.0))
     C_centered = np.exp(-r2)
 
-    # Deplacement du plan image
-    C = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
+    if x0 == y0 == 0:
+        C = C_centered
+    else:
+        C = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
     return C
 
 
@@ -170,7 +244,7 @@ def visEllipticalGaussianDisk(Utable, Vtable, Lambda, param):
     Params:
     -------
     majorAxis: {float}
-        Major axis of the disk [rad],\n
+        Major axis of the disk [,as],\n
     minorAxis: {float}
         Minor axis of the disk [rad],\n
     angle: {float}
@@ -203,52 +277,174 @@ def visEllipticalGaussianDisk(Utable, Vtable, Lambda, param):
     return C
 
 
-def visYSO(Utable, Vtable, Lambda, param):
+def visCont(Utable, Vtable, Lambda, param):
     """
-    Compute complex visibility of an elliptical gaussian disk
-
+    Compute complex visibility double gaussian model (same as TW Hya for the
+    IR continuum).
+    
     Params:
     -------
-    majorAxis: {float}
-        Major axis of the disk [rad],\n
-    minorAxis: {float}
-        Minor axis of the disk [rad],\n
-    angle: {float}
-        Orientation of the disk [rad],\n
-    x0, y0: {float}
-        Shift along x and y position [rad].
+    `fwhm` {float}:
+        Full major axis of the disk [rad],\n
+    `incl` {float}:
+        Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)),\n
+    `pa` {float}:
+        Orientation of the disk (from north to East) [rad],\n
+    `fratio` {float}:
+        Stellar to total flux ratio (i.e: 1/fratio = f* [%]),\n
+    `rstar` {float}:
+        Radius of the star [mas],\n
     """
     u = Utable / Lambda
     v = Vtable / Lambda
 
+    pa = np.deg2rad(param["pa"])
+
+    # Define the reduction ratio apply on the fwhm
+    # because of the inclination
+    incl = np.deg2rad(param["incl"])
+    elong = np.cos(incl)
+    majorAxis = mas2rad(param["fwhm"])
+    minorAxis = elong * majorAxis
+    # Define stellar flux ratio
+    fratio = param["fratio"]
+    Fstar = 1.0 / fratio
+    Fdisc = 1 - Fstar
+
+    # Stellar radius (resolved disk)
+    rstar = 2 * param["rstar"]
+
+    Vdisc = _elong_gauss_disk(u, v, pa, majorAxis, minorAxis)
+
+    p_star = {"fwhm": rstar, "x0": 0, "y0": 0}
+    Vstar = visGaussianDisk(Utable, Vtable, Lambda, p_star)
+
+    Vcont = (Fdisc * Vdisc) + (Fstar * Vstar)
+    return Vcont
+
+
+def visYSO(Utable, Vtable, Lambda, param):
+    """
+    Compute complex visibility of a YSO model (star + gaussian disk + resolved
+    halo). The halo contribution is computed with 1 - fc - fs.
+    
+    Params:
+    -------
+    `hfr` {float}:
+        Half major axis of the disk [rad],\n
+    `incl` {float}:
+        Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)),\n
+    `pa` {float}:
+        Orientation of the disk (from north to East) [rad],\n
+    `fs` {float}:
+        Flux contribution of the star [%],\n
+    `fc` {float}:
+        Flux contribution of the disk [%],\n
+    """
+    fs = param["fs"]
+    fc = param["fc"]
+    fh = 1 - fs - fc
+
+    param_disk = {
+        "fwhm": 2 * param["hfr"],
+        "flor": param["flor"],
+        "pa": param["pa"],
+        "incl": param["incl"],
+    }
+
+    C = visEllipsoid(Utable, Vtable, Lambda, param_disk)
+
+    p_s1 = {"x0": 0, "y0": 0}
+    s1 = fs * visPointSource(Utable, Vtable, Lambda, p_s1)
+    s2 = fc * C
+    ftot = fs + fh + fc
+    return (s1 + s2) / ftot
+
+
+def visLazareff(Utable, Vtable, Lambda, param):
+    """
+    Compute complex visibility of a Lazareff model (star + thick ring + resolved
+    halo). The halo contribution is computed with 1 - fc - fs.
+    
+    Params:
+    -------
+    `la` {float}:
+        Half major axis of the disk (log),\n
+    `lr` {float}:
+        Kernel half light (log),\n
+    `flor` {float}:
+        Weighting for radial profile (0 gaussian kernel,
+        1 Lorentizian kernel),\n
+    `incl` {float}:
+        Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)),\n
+    `pa` {float}:
+        Orientation of the disk (from north to East) [rad],\n
+    `fs` {float}:
+        Flux contribution of the star [%],\n
+    `fc` {float}:
+        Flux contribution of the disk [%],\n
+    `ks` {float}:
+        Spectral index compared to reference wave at 2.2 µm,\n
+    `c1`, `s1` {float}:
+        Cosine and sine amplitude for the mode 1 (azimutal changes),\n
+    
+    """
+    u = Utable / Lambda
+    v = Vtable / Lambda
     # List of parameter
-    elong = param["cosi"]
-    majorAxis = 2*mas2rad(param['hfr'])
+
+    elong = np.cos(np.deg2rad(param["incl"]))
+    la = param["la"]
+    lk = param["lk"]
+
+    ar = 10 ** la / (np.sqrt(1 + 10 ** (2 * lk)))
+    ak = ar * (10 ** lk)
+
+    ar_rad = mas2rad(ar)
+    majorAxis = 2 * ar_rad
     minorAxis = majorAxis * elong
-    angle = np.deg2rad(param["pa"])
-    x0 = param["x0"]
-    y0 = param["y0"]
+
+    pa = np.deg2rad(param["pa"])
 
     fs = param["fs"]
     fc = param["fc"]
     fh = 1 - fs - fc
 
-    r2 = (
-        (np.pi ** 2)
-        * (
-            ((u * np.sin(angle) + v * np.cos(angle)) * majorAxis) ** 2
-            + ((u * np.cos(angle) - v * np.sin(angle)) * minorAxis) ** 2
+    param_ker = {
+        "pa": param["pa"],
+        "incl": param["incl"],
+        "fwhm": ak,
+        "flor": param["flor"],
+    }
+
+    Vkernel = visEllipsoid(Utable, Vtable, Lambda, param_ker)
+
+    try:
+        cj = param["cj"]
+        sj = param["sj"]
+    except Exception:
+        cj = None
+
+    if cj is not None:
+        azimuth_mod = _azimuth_modulation_mod(
+            Utable, Vtable, Lambda, pa, elong, mas2rad(ar), cj, sj
         )
-        / (4.0 * np.log(2.0))
-    )
+    else:
+        azimuth_mod = 0
 
-    C_centered = np.exp(-r2)
-    C = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
+    Vring = (_elong_thick_ring(u, v, pa, majorAxis, minorAxis) + azimuth_mod) * Vkernel
 
-    p_s1 = {"x0": x0, "y0": y0}
-    s1 = fs * visPointSource(Utable, Vtable, Lambda, p_s1)
-    s2 = fc * C
-    ftot = fs + fh + fc
+    ks = param["ks"]
+    kc = param["kc"]
+    wl0 = 2.2e-6
+
+    fs_lambda = fs * (wl0 / Lambda) ** ks
+    fc_lambda = fc * (wl0 / Lambda) ** kc
+    fh_lambda = fh * (wl0 / Lambda) ** ks
+    p_s1 = {"x0": 0, "y0": 0}
+    s1 = fs_lambda * visPointSource(Utable, Vtable, Lambda, p_s1)
+    s2 = fc_lambda * Vring
+    ftot = fs_lambda + fh_lambda + fc_lambda
     return (s1 + s2) / ftot
 
 
@@ -328,6 +524,42 @@ def visEllipticalRing(Utable, Vtable, Lambda, param):
     C_centered = special.j0(np.pi * r)
     C = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
     return C
+
+
+def visEllipsoid(Utable, Vtable, Lambda, param):
+    """
+    Compute complex visibility of an ellipsoid (as Lazareff+17).
+
+    Params:
+    -------
+    `fwhm` {float}:
+        FWHM of the disk,\n
+    `incl` {float}:
+        Inclination of the disk [deg],\n
+    `pa` {float}:
+        Orientation of the disk [deg],\n
+    `flor` {float}: 
+        Hybridation between purely gaussian (flor=0) 
+        and Lorentzian radial profile (flor=1).
+    """
+    u = Utable / Lambda
+    v = Vtable / Lambda
+
+    pa = np.deg2rad(param["pa"])
+
+    # Define the reduction ratio apply on the fwhm
+    # because of the inclination
+    incl = np.deg2rad(param["incl"])
+    elong = np.cos(incl)
+    majorAxis = mas2rad(param["fwhm"])
+    minorAxis = elong * majorAxis
+
+    flor = param["flor"]
+
+    Vlor = _elong_lorentz_disk(u, v, pa, majorAxis, minorAxis)
+    Vgauss = _elong_gauss_disk(u, v, pa, majorAxis, minorAxis)
+    Vc = (1 - flor) * Vgauss + flor * Vlor
+    return Vc
 
 
 def visLorentzDisk(Utable, Vtable, Lambda, param):
@@ -486,28 +718,6 @@ def visClumpDebrisDisk(Utable, Vtable, Lambda, param):
     s2 = rel_disk * C
     deb_disk = s1 + s2
     return f_debrisdisk * deb_disk + f_clump * C_clump
-
-
-# def visEllipsoid(Utable, Vtable, Lambda, param):
-#     """
-#     Compute complex visibility of an elliptical thick ring.
-
-#     Params:
-#     -------
-#     majorAxis: {float}
-#         Major axis of the disk [rad],\n
-#     minorAxis: {float}
-#         Minor axis of the disk [rad],\n
-#     angle: {float}
-#         Orientation of the disk [rad],\n
-#     thickness: {float}
-#         Thickness of the ring [rad],\n
-#     x0, y0: {float}
-#         Shift along x and y position [rad].
-#     """
-
-
-#     return
 
 
 def _compute_param_elts(

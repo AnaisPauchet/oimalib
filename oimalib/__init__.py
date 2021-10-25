@@ -9,5 +9,5 @@ from .plotting import (
     plot_dvis,
 )
 from .fitting import smartfit, format_obs
-from .data_selection import select_data
+from .data_processing import select_data, spectral_bin_data
 from .modelling import model2grid, compute_geom_model, compute_grid_model
