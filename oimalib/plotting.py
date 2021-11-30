@@ -10,22 +10,26 @@ Set of function to plot oi data, u-v plan, models, etc.
 """
 
 import numpy as np
+import pandas as pd
 import pkg_resources
+import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.colors import PowerNorm
-from termcolor import cprint
-from scipy.interpolate.interpolate import interp1d
 from scipy.constants import c as c_light
+from scipy.interpolate.interpolate import interp1d
+from termcolor import cprint
+
 from oimalib.complex_models import visGaussianDisk
 from oimalib.fitting import check_params_model, select_model
 from oimalib.fourier import UVGrid
+from oimalib.modelling import compute_geom_model
 from oimalib.tools import (
     hide_xlabel,
     mas2rad,
     plot_vline,
+    rad2arcsec,
     rad2mas,
     substract_run_med,
-    rad2arcsec,
 )
 
 dic_color = {
@@ -311,7 +315,7 @@ def plot_oidata(
 
             if mega:
                 freq_vis2 = freq_vis2 * (1.0 / mas2rad(1000)) / 1e6
-        
+
             if is_nrm:
                 p_color = "tab:blue"
                 ax1.errorbar(
@@ -481,7 +485,7 @@ def plot_oidata(
             cp = data.cp[i][sel_flag]
             e_cp = data.e_cp[i][sel_flag]
             wave = data.wl[sel_flag]
-            
+
             if mega:
                 freq_cp = freq_cp * (1.0 / mas2rad(1000)) / 1e6
 
@@ -586,194 +590,479 @@ def plot_uv(tab, bmax=150, rotation=0):
     return fig
 
 
+# def plot_residuals(
+#     data,
+#     mod_v2,
+#     mod_cp,
+#     use_flag=True,
+#     modelname="model",
+#     d_freedom=0,
+#     cp_max=None,
+#     v2_min=None,
+#     v2_max=1.1,
+#     mega=False,
+#     color_wl=False,
+#     ifig=None,
+# ):
+#     """ Plot the data with the model (param) and corresponding residuals.
+
+#     Parameters:
+#     -----------
+#     `data`: {class}
+#         Data from load() function,\n
+#     `param` {dict}:
+#         Dictionnary containing the model parameters,\n
+#     `use_flag`: {boolean}
+#         If True, use flag from the original oifits file,\n
+#     `d_freedom` {int}:
+#         Degree of freedom used during the model fitting.\n
+#     """
+#     data_v2 = _flat_v2_data(data, use_flag=use_flag)
+#     data_cp = _flat_cp_data(data, use_flag=use_flag)
+
+#     freq_vis2, vis2, e_vis2, wl_v2, cond_v2 = data_v2
+#     freq_cp, cp, e_cp, wl_cp, cond_cp = data_cp
+
+#     if mega:
+#         freq_vis2 = freq_vis2 * (1.0 / mas2rad(1000)) / 1e6
+#         freq_cp = freq_cp * (1.0 / mas2rad(1000)) / 1e6
+
+#     if (mod_v2 is None) or (mod_cp is None):
+#         return None
+
+#     mod_v2 = mod_v2.flatten()[cond_v2]
+#     mod_cp = mod_cp.flatten()[cond_cp]
+
+#     res_vis2 = (mod_v2 - vis2) / e_vis2
+#     res_cp = (mod_cp - cp) / e_cp
+
+#     chi2_cp = np.sum(((cp - mod_cp) ** 2 / (e_cp) ** 2)) / (len(e_cp) - (d_freedom - 1))
+#     chi2_vis2 = np.sum(((vis2 - mod_v2) ** 2 / (e_vis2) ** 2)) / (
+#         len(e_vis2) - (d_freedom - 1)
+#     )
+
+#     ms = 5
+#     fig = plt.figure(ifig, constrained_layout=True, figsize=(15, 6))
+#     axd = fig.subplot_mosaic(
+#         [["vis", "cp"], ["res_vis2", "res_cp"]],
+#         gridspec_kw={"width_ratios": [2, 2], "height_ratios": [3, 1]},
+#     )
+
+#     axd["res_vis2"].sharex(axd["vis"])
+#     axd["res_cp"].sharex(axd["cp"])
+
+#     if color_wl:
+#         sc = axd["vis"].scatter(
+#             freq_vis2, vis2, c=wl_v2 * 1e6, s=7, cmap="turbo", zorder=20
+#         )
+#         axd["vis"].errorbar(
+#             freq_vis2,
+#             vis2,
+#             yerr=e_vis2,
+#             marker="None",
+#             linestyle="None",
+#             elinewidth=1,
+#             color="grey",
+#             capsize=1,
+#         )
+#         cax = fig.add_axes(
+#             [
+#                 axd["vis"].get_position().x1 * 0.93,
+#                 axd["vis"].get_position().y1 * 0.8,
+#                 0.01,
+#                 axd["vis"].get_position().height * 0.4,
+#             ]
+#         )
+#         cb = plt.colorbar(sc, cax=cax)
+
+#         cb.set_label("$\lambda$ [µm]", fontsize=8)
+#     else:
+#         axd["vis"].errorbar(
+#             freq_vis2, vis2, yerr=e_vis2, **err_pts_style, color="#3d84a8"
+#         )
+#     axd["vis"].plot(
+#         freq_vis2,
+#         mod_v2,
+#         "^",
+#         color="#f6416c",
+#         zorder=100,
+#         ms=ms,
+#         label="%s ($\chi^2_r=%2.2f$)" % (modelname, chi2_vis2),
+#         alpha=0.7,
+#     )
+#     axd["vis"].legend()
+#     if v2_min is not None:
+#         axd["vis"].set_ylim(v2_min, v2_max)
+#     axd["vis"].grid(alpha=0.2)
+#     axd["vis"].set_ylabel(r"V$^2$")
+
+#     axd["res_vis2"].plot(freq_vis2, res_vis2, ".", color="#3d84a8")
+#     axd["res_vis2"].axhspan(-1, 1, alpha=0.2, color="#418fde")
+#     axd["res_vis2"].axhspan(-2, 2, alpha=0.2, color="#8bb8e8")
+#     axd["res_vis2"].axhspan(-3, 3, alpha=0.2, color="#c8d8eb")
+#     res_mas = 5
+#     try:
+#         if res_vis2.max() > 5:
+#             res_mas = res_vis2.max()
+#     except ValueError:
+#         axd["vis"].text(
+#             0.5,
+#             0.5,
+#             "ALL FLAGGED",
+#             color="r",
+#             ha="center",
+#             va="center",
+#             fontweight="bold",
+#             transform=axd["vis"].transAxes,
+#             fontsize=20,
+#         )
+
+#     axd["res_vis2"].set_ylim(-res_mas, res_mas)
+#     axd["res_vis2"].set_ylabel("Residual [$\sigma$]")
+#     axd["res_vis2"].set_xlabel("Sp. Freq. [arcsec$^{-1}$]")
+
+#     if color_wl:
+#         sc = axd["cp"].scatter(freq_cp, cp, c=wl_cp * 1e6, s=7, cmap="turbo", zorder=20)
+#         axd["cp"].errorbar(
+#             freq_cp,
+#             cp,
+#             yerr=e_cp,
+#             marker="None",
+#             linestyle="None",
+#             elinewidth=1,
+#             color="grey",
+#             capsize=1,
+#         )
+#     else:
+#         axd["cp"].errorbar(freq_cp, cp, yerr=e_cp, **err_pts_style, color="#289045")
+
+#     axd["cp"].plot(
+#         freq_cp,
+#         mod_cp,
+#         "x",
+#         color="#f6416c",
+#         zorder=100,
+#         ms=ms,
+#         label="%s ($\chi^2_r=%2.1f$)" % (modelname, chi2_cp),
+#         alpha=0.7,
+#     )
+
+#     if cp_max is not None:
+#         axd["cp"].set_ylim(-cp_max, cp_max)
+#     axd["cp"].grid(alpha=0.2)
+#     axd["cp"].set_ylabel("Closure phases [deg]")
+#     axd["cp"].legend()
+
+#     axd["res_cp"].plot(freq_cp, res_cp, ".", color="#1e7846")
+#     axd["res_cp"].axhspan(-1, 1, alpha=0.3, color="#28a16c")  # f5c893
+#     axd["res_cp"].axhspan(-2, 2, alpha=0.2, color="#28a16c")
+#     axd["res_cp"].axhspan(-3, 3, alpha=0.1, color="#28a16c")
+#     try:
+#         if res_cp.max() > 5:
+#             res_mas = res_cp.max()
+#         else:
+#             res_mas = 5
+#     except ValueError:
+#         axd["cp"].text(
+#             0.5,
+#             0.5,
+#             "ALL FLAGGED",
+#             color="r",
+#             ha="center",
+#             va="center",
+#             fontweight="bold",
+#             transform=axd["cp"].transAxes,
+#             fontsize=20,
+#         )
+#         pass
+#     axd["res_cp"].set_ylim(-res_mas, res_mas)
+#     axd["res_cp"].set_ylabel("Residual [$\sigma$]")
+#     axd["res_cp"].set_xlabel("Sp. Freq. [arcsec$^{-1}$]")
+#     return fig
+
+
 def plot_residuals(
-    data,
-    mod_v2,
-    mod_cp,
-    use_flag=True,
-    modelname="model",
-    d_freedom=0,
-    cp_max=None,
-    v2_min=None,
-    v2_max=1.1,
-    mega=False,
-    color_wl=False,
+    data, param, fitOnly=None, hue=None, use_flag=True, save_dir=None, name=""
 ):
-    """ Plot the data with the model (param) and corresponding residuals.
+    sns.set_theme(color_codes=True)
+    if fitOnly is None:
+        print("Warning: FitOnly is None, the degree of freedom is set to 0.\n")
+        fitOnly = []
+    else:
+        if len(fitOnly) == 0:
+            print("Warning: FitOnly is empty, the degree of freedom is set to 0.\n")
 
-    Parameters:
-    -----------
-    `data`: {class}
-        Data from load() function,\n
-    `param` {dict}:
-        Dictionnary containing the model parameters,\n
-    `use_flag`: {boolean}
-        If True, use flag from the original oifits file,\n
-    `d_freedom` {int}:
-        Degree of freedom used during the model fitting.\n
-    """
-    data_v2 = _flat_v2_data(data, use_flag=use_flag)
-    data_cp = _flat_cp_data(data, use_flag=use_flag)
+    if type(data) is not list:
+        data = [data]
 
-    freq_vis2, vis2, e_vis2, wl_v2, cond_v2 = data_v2
-    freq_cp, cp, e_cp, wl_cp, cond_cp = data_cp
+    param_plot = {
+        "data": data,
+        "param": param,
+        "fitOnly": fitOnly,
+        "hue": hue,
+        "use_flag": use_flag,
+    }
+    df_cp, chi2_cp = plot_cp_residuals(**param_plot)
+    if save_dir is not None:
+        plt.savefig(save_dir + "residuals_CP_%sfit.png" % name)
+    df_v2, chi2_vis2 = plot_v2_residuals(**param_plot)
+    if save_dir is not None:
+        plt.savefig(save_dir + "residuals_V2_%sfit.png" % name)
 
-    if mega:
-        freq_vis2 = freq_vis2 * (1.0 / mas2rad(1000)) / 1e6
-        freq_cp = freq_cp * (1.0 / mas2rad(1000)) / 1e6
+    d_freedom = len(fitOnly)
 
-    if (mod_v2 is None) or (mod_cp is None):
-        return None
+    nv2 = len(df_v2["vis2"])
+    ncp = len(df_cp["cp"])
+    nobs = nv2 + ncp
+    obs = np.zeros(nobs)
+    e_obs = np.zeros(nobs)
+    all_mod = np.zeros(nobs)
 
-    mod_v2 = mod_v2.flatten()[cond_v2]
-    mod_cp = mod_cp.flatten()[cond_cp]
+    for i in range(len(df_v2["vis2"])):
+        obs[i] = df_v2["vis2"][i]
+        e_obs[i] = df_v2["e_vis2"][i]
+        all_mod[i] = df_v2["mod"][i]
+    for i in range(len(df_cp["cp"])):
+        obs[i + nv2] = df_cp["cp"][i]
+        e_obs[i + nv2] = df_cp["e_cp"][i]
+        all_mod[i + nv2] = df_cp["mod"][i]
 
-    res_vis2 = (mod_v2 - vis2) / e_vis2
-    res_cp = (mod_cp - cp) / e_cp
+    chi2_global = np.sum(((obs - all_mod) ** 2 / (e_obs) ** 2)) / (
+        nobs - (d_freedom - 1)
+    )
+    title = "Statistic of the model %s" % param["model"]
+    print(title)
+    print("-" * len(title))
+    print("χ² = %2.1f (V² = %2.1f, CP = %2.1f)" % (chi2_global, chi2_vis2, chi2_cp))
+    return chi2_global, chi2_vis2, chi2_cp
 
-    chi2_cp = np.sum(((cp - mod_cp) ** 2 / (e_cp) ** 2)) / (len(e_cp) - (d_freedom - 1))
-    chi2_vis2 = np.sum(((vis2 - mod_v2) ** 2 / (e_vis2) ** 2)) / (
-        len(e_vis2) - (d_freedom - 1)
+
+def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
+    if fitOnly is None:
+        fitOnly = []
+    mod_v2 = compute_geom_model(data, param)[0]
+
+    input_keys = ["vis2", "e_vis2", "freq_vis2", "wl", "blname", "set", "flag_vis2"]
+
+    dict_obs = {}
+    for k in input_keys:
+        dict_obs[k] = []
+
+    nobs = 0
+    for d in data:
+        for k in input_keys:
+            nbl = d.vis2.shape[0]
+            nwl = d.vis2.shape[1]
+            if k == "wl":
+                for i in range(nbl):
+                    dict_obs[k].extend(np.round(d[k] * 1e6, 3))
+            elif k == "blname":
+                for j in range(nbl):
+                    for i in range(nwl):
+                        dict_obs[k].append(d[k][j])
+            elif k == "set":
+                for j in range(nbl):
+                    for i in range(nwl):
+                        dict_obs[k].append(nobs)
+            else:
+                dict_obs[k].extend(d[k].flatten())
+        nobs += 1
+
+    dict_obs["mod"] = np.array(mod_v2).flatten()
+
+    dict_obs["res"] = (dict_obs["vis2"] - dict_obs["mod"]) / dict_obs["e_vis2"]
+
+    flag = np.array(dict_obs["flag_vis2"])
+    flag_nan = np.isnan(np.array(dict_obs["vis2"]))
+
+    if use_flag:
+        for k in dict_obs.keys():
+            dict_obs[k] = np.array(dict_obs[k])[~flag & ~flag_nan]
+
+    df = pd.DataFrame(dict_obs)
+
+    d_freedom = len(fitOnly)
+    chi2_vis2 = np.sum(((df["vis2"] - df["mod"]) ** 2 / (df["e_vis2"]) ** 2)) / (
+        len(df["e_vis2"]) - (d_freedom - 1)
     )
 
-    ms = 5
-    fig = plt.figure(constrained_layout=True, figsize=(15, 6))
+    label = "DATA"
+    if hue == "wl":
+        label = "Wavelenght [µm]"
+
+    fig = plt.figure(constrained_layout=False, figsize=(7, 5))
     axd = fig.subplot_mosaic(
-        [["vis", "cp"], ["res_vis2", "res_cp"]],
-        gridspec_kw={"width_ratios": [2, 2], "height_ratios": [3, 1]},
+        [["vis2"], ["res_vis2"]], gridspec_kw={"height_ratios": [3, 1]},
+    )
+    ax = sns.scatterplot(
+        x="freq_vis2",
+        y="vis2",
+        data=df,
+        palette="crest",
+        zorder=10,
+        label=label,
+        ax=axd["vis2"],
+        style=None,
+        hue=hue,
+    )
+    sns.scatterplot(
+        x="freq_vis2",
+        y="mod",
+        data=df,
+        color="#e19751",
+        zorder=10,
+        marker="^",
+        label="MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
+        ax=axd["vis2"],
+    )
+    ax.errorbar(
+        df.freq_vis2,
+        df.vis2,
+        yerr=df.e_vis2,
+        fmt="None",
+        zorder=1,
+        color="gray",
+        alpha=0.4,
+        capsize=2,
+    )
+    sns.scatterplot(
+        x="freq_vis2", y="res", data=df, zorder=10, ax=axd["res_vis2"],
+    )
+    axd["res_vis2"].sharex(axd["vis2"])
+    plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
+    axd["vis2"].set_ylabel("V$^{2}$")
+    axd["vis2"].set_xlabel("")
+    # axd["vis2"].xaxis.set_ticklabels([])
+    axd["res_vis2"].set_ylabel("Residuals [$\sigma$]")
+    axd["res_vis2"].axhspan(-1, 1, alpha=0.6, color="#418fde")
+    axd["res_vis2"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
+    axd["res_vis2"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
+    axd["res_vis2"].set_ylim(-5, 5)
+
+    axd["vis2"].tick_params(
+        axis="x",  # changes apply to the x-axis
+        which="major",  # both major and minor ticks are affected
+        bottom=False,  # ticks along the bottom edge are off
+        top=False,  # ticks along the top edge are off
+        labelbottom=False,  # labels along the bottom edge are off)
+    )
+    plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
+    return df, chi2_vis2
+
+
+def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
+    if fitOnly is None:
+        fitOnly = []
+    mod_cp = compute_geom_model(data, param)[1]
+
+    input_keys = ["cp", "e_cp", "freq_cp", "wl", "cpname", "set", "flag_cp"]
+
+    dict_obs = {}
+    for k in input_keys:
+        dict_obs[k] = []
+
+    nobs = 0
+    for d in data:
+        for k in input_keys:
+            nbl = d.cp.shape[0]
+            nwl = d.cp.shape[1]
+            if k == "wl":
+                for i in range(nbl):
+                    dict_obs[k].extend(np.round(d[k] * 1e6, 3))
+            elif k == "cpname":
+                for j in range(nbl):
+                    for i in range(nwl):
+                        dict_obs[k].append(d[k][j])
+            elif k == "set":
+                for j in range(nbl):
+                    for i in range(nwl):
+                        dict_obs[k].append(nobs)
+            else:
+                dict_obs[k].extend(d[k].flatten())
+        nobs += 1
+
+    dict_obs["mod"] = np.array(mod_cp).flatten()
+
+    dict_obs["res"] = (dict_obs["cp"] - dict_obs["mod"]) / dict_obs["e_cp"]
+
+    if use_flag:
+        flag = np.array(dict_obs["flag_cp"])
+        flag_nan = np.isnan(np.array(dict_obs["cp"]))
+        for k in dict_obs.keys():
+            dict_obs[k] = np.array(dict_obs[k])[~flag & ~flag_nan]
+
+    df = pd.DataFrame(dict_obs)
+
+    d_freedom = 5
+    chi2_cp = np.sum(((df["cp"] - df["mod"]) ** 2 / (df["e_cp"]) ** 2)) / (
+        len(df["e_cp"]) - (d_freedom - 1)
     )
 
-    axd["res_vis2"].sharex(axd["vis"])
+    res_max = 5
+    if np.max(abs(df["res"])) >= 5:
+        res_max = abs(df["res"]).max() * 1.2
+
+    fig = plt.figure(constrained_layout=False, figsize=(7, 5))
+    axd = fig.subplot_mosaic(
+        [["cp"], ["res_cp"]], gridspec_kw={"height_ratios": [3, 1]},
+    )
+    label = "DATA"
+    if hue == "wl":
+        label = "Wavelenght [µm]"
+    ax = sns.scatterplot(
+        x="freq_cp",
+        y="cp",
+        data=df,
+        palette="crest",
+        zorder=10,
+        label=label,
+        ax=axd["cp"],
+        style=None,
+        hue=hue,
+    )
+    sns.scatterplot(
+        x="freq_cp",
+        y="mod",
+        data=df,
+        color="#e19751",
+        zorder=10,
+        marker="^",
+        label="MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
+        ax=axd["cp"],
+    )
+    ax.errorbar(
+        df.freq_cp,
+        df.cp,
+        yerr=df.e_cp,
+        fmt="None",
+        zorder=1,
+        color="gray",
+        alpha=0.4,
+        capsize=2,
+    )
+    sns.scatterplot(
+        x="freq_cp", y="res", data=df, zorder=10, ax=axd["res_cp"],
+    )
     axd["res_cp"].sharex(axd["cp"])
+    plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
+    axd["cp"].set_ylabel("Closure phase $\phi$ [deg]")
+    axd["cp"].set_xlabel("")
+    # axd["vis2"].xaxis.set_ticklabels([])
+    axd["res_cp"].set_ylabel("Residuals [$\sigma$]")
+    axd["res_cp"].axhspan(-1, 1, alpha=0.6, color="#418fde")
+    axd["res_cp"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
+    axd["res_cp"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
+    axd["res_cp"].set_ylim(-res_max, res_max)
 
-    if color_wl:
-        sc = axd["vis"].scatter(
-            freq_vis2, vis2, c=wl_v2 * 1e6, s=7, cmap="turbo", zorder=20
-        )
-        axd["vis"].errorbar(
-            freq_vis2,
-            vis2,
-            yerr=e_vis2,
-            marker="None",
-            linestyle="None",
-            elinewidth=1,
-            color="grey",
-            capsize=1,
-        )
-        cax = fig.add_axes(
-            [
-                axd["vis"].get_position().x1 * 0.93,
-                axd["vis"].get_position().y1 * 0.8,
-                0.01,
-                axd["vis"].get_position().height * 0.4,
-            ]
-        )
-        cb = plt.colorbar(sc, cax=cax)
-
-        cb.set_label("$\lambda$ [µm]", fontsize=8)
-    else:
-        axd["vis"].errorbar(
-            freq_vis2, vis2, yerr=e_vis2, **err_pts_style, color="#3d84a8"
-        )
-    axd["vis"].plot(
-        freq_vis2,
-        mod_v2,
-        "x",
-        color="#f6416c",
-        zorder=100,
-        ms=ms,
-        label="%s ($\chi^2_r=%2.2f$)" % (modelname, chi2_vis2),
-        alpha=0.7,
+    axd["cp"].tick_params(
+        axis="x",  # changes apply to the x-axis
+        which="major",  # both major and minor ticks are affected
+        bottom=False,  # ticks along the bottom edge are off
+        top=False,  # ticks along the top edge are off
+        labelbottom=False,  # labels along the bottom edge are off)
     )
-    axd["vis"].legend()
-    if v2_min is not None:
-        axd["vis"].set_ylim(v2_min, v2_max)
-    axd["vis"].grid(alpha=0.2)
-    axd["vis"].set_ylabel(r"V$^2$")
-
-    axd["res_vis2"].plot(freq_vis2, res_vis2, ".", color="#3d84a8")
-    axd["res_vis2"].axhspan(-1, 1, alpha=0.2, color="#418fde")
-    axd["res_vis2"].axhspan(-2, 2, alpha=0.2, color="#8bb8e8")
-    axd["res_vis2"].axhspan(-3, 3, alpha=0.2, color="#c8d8eb")
-    res_mas = 5
-    try:
-        if res_vis2.max() > 5:
-            res_mas = res_vis2.max()
-    except ValueError:
-        axd["vis"].text(
-            0.5,
-            0.5,
-            "ALL FLAGGED",
-            color="r",
-            ha="center",
-            va="center",
-            fontweight="bold",
-            transform=axd["vis"].transAxes,
-            fontsize=20,
-        )
-
-    axd["res_vis2"].set_ylim(-res_mas, res_mas)
-    axd["res_vis2"].set_ylabel("Residual [$\sigma$]")
-    axd["res_vis2"].set_xlabel("Sp. Freq. [arcsec$^{-1}$]")
-
-    if color_wl:
-        sc = axd["cp"].scatter(freq_cp, cp, c=wl_cp * 1e6, s=7, cmap="turbo", zorder=20)
-        axd["cp"].errorbar(
-            freq_cp,
-            cp,
-            yerr=e_cp,
-            marker="None",
-            linestyle="None",
-            elinewidth=1,
-            color="grey",
-            capsize=1,
-        )
-    else:
-        axd["cp"].errorbar(freq_cp, cp, yerr=e_cp, **err_pts_style, color="#289045")
-
-    axd["cp"].plot(
-        freq_cp,
-        mod_cp,
-        "x",
-        color="#f6416c",
-        zorder=100,
-        ms=ms,
-        label="%s ($\chi^2_r=%2.1f$)" % (modelname, chi2_cp),
-        alpha=0.7,
-    )
-
-    if cp_max is not None:
-        axd["cp"].set_ylim(-cp_max, cp_max)
-    axd["cp"].grid(alpha=0.2)
-    axd["cp"].set_ylabel("Closure phases [deg]")
-    axd["cp"].legend()
-
-    axd["res_cp"].plot(freq_cp, res_cp, ".", color="#1e7846")
-    axd["res_cp"].axhspan(-1, 1, alpha=0.3, color="#28a16c")  # f5c893
-    axd["res_cp"].axhspan(-2, 2, alpha=0.2, color="#28a16c")
-    axd["res_cp"].axhspan(-3, 3, alpha=0.1, color="#28a16c")
-    try:
-        if res_cp.max() > 5:
-            res_mas = res_cp.max()
-        else:
-            res_mas = 5
-    except ValueError:
-        axd["cp"].text(
-            0.5,
-            0.5,
-            "ALL FLAGGED",
-            color="r",
-            ha="center",
-            va="center",
-            fontweight="bold",
-            transform=axd["cp"].transAxes,
-            fontsize=20,
-        )
-        pass
-    axd["res_cp"].set_ylim(-res_mas, res_mas)
-    axd["res_cp"].set_ylabel("Residual [$\sigma$]")
-    axd["res_cp"].set_xlabel("Sp. Freq. [arcsec$^{-1}$]")
-    return fig
+    plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
+    return df, chi2_cp
 
 
 def plot_complex_model(
@@ -1024,7 +1313,7 @@ def plot_image_model(
     rb = rad2arcsec(2 * blm / wl)
 
     # image_orient[image_orient < 0.02] = 0
-    corono = True
+    # corono = True
     if corono:
         image_orient[npts // 2, npts // 2 - 1] = 0
         image_orient /= np.max(image_orient)
@@ -1063,7 +1352,7 @@ def plot_image_model(
 
     plt.imshow(
         image_orient,
-        cmap="jet",
+        cmap="turbo",
         norm=PowerNorm(p),
         interpolation=None,
         extent=np.array(extent_ima),
@@ -1367,3 +1656,66 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
     plt.tight_layout()
     plt.subplots_adjust(hspace=0.15, bottom=0.05, top=0.99)
     return fig
+
+
+def _summary_corner_sns(x, prec=2, color="#ee9068", **kwargs):
+    t_unit = {
+        "f$_c$": "%",
+        "incl": "deg",
+        "a$_r$": r"r$_{star}$",
+        "PA": "deg",
+        "c$_j$": "",
+        "s$_j$": "",
+        "l$_a$": "",
+    }
+    mcmc = np.percentile(x, [16, 50, 84])
+    q = np.diff(mcmc)
+    txt = r"{3} = {0:.%if}$_{{-{1:.%if}}}^{{+{2:.%if}}}$ {4}" % (prec, prec, prec)
+    txt = txt.format(mcmc[1], q[0], q[1], x.name, t_unit[x.name])
+    ax = plt.gca()
+    ax.set_axis_off()
+    ax.axvline(mcmc[0], lw=1, color=color, alpha=0.8, ls="--")
+    ax.axvline(mcmc[1], lw=1, color=color, alpha=0.8, ls="-")
+    ax.axvline(mcmc[2], lw=1, color=color, alpha=0.8, ls="--")
+    ax.set_title(txt, fontsize=9)
+
+
+def _results_corner_sns(x, y, color="#ee9068", **kwargs):
+    p1 = np.percentile(x, [16, 50, 84])
+    p2 = np.percentile(y, [16, 50, 84])
+    ax = plt.gca()
+    ax.plot(p1[1], p2[1], "s", color=color, alpha=0.8)
+    ax.axvline(p1[1], lw=1, color=color, alpha=0.8)
+    ax.axhline(p2[1], lw=1, color=color, alpha=0.8)
+
+
+def plot_mcmc_results(sampler, labels=None, burnin=200, compute_r=False, dpc=None):
+    """ Plot modern corner plot using seaborn. """
+    flat_samples = sampler.get_chain(discard=burnin, thin=15, flat=True)
+
+    dict_mcmc = {}
+    for i in range(len(labels)):
+        f = 1
+        if labels[i] == "f$_c$":
+            f = 100
+        dict_mcmc[labels[i]] = flat_samples[:-1, i] * f
+
+    # try:
+    if compute_r:
+        if dpc is None:
+            raise TypeError("Distance (dpc) is required to compute the radius in AU.")
+        la = flat_samples[:-1, -1]
+        ar = 10 ** la / (np.sqrt(1 + 10 ** (2 * -1)))
+        dict_mcmc["a$_r$"] = ar * dpc * 215.0 / 2.0
+        del dict_mcmc["l$_a$"]
+
+    df = pd.DataFrame(dict_mcmc)
+
+    color = "#ee9068"
+    g = sns.PairGrid(df, corner=True, height=1.7)
+    g.map_lower(sns.histplot, bins=40, pthresh=0.0)
+    g.map_diag(sns.histplot, bins=20, element="step", linewidth=1, kde=True, alpha=0.5)
+    g.map_diag(_summary_corner_sns, color=color)
+    g.map_lower(_results_corner_sns, color=color)
+    plt.subplots_adjust(wspace=0.05, hspace=0.05)
+    return g

@@ -1,17 +1,23 @@
-from multiprocessing import Pool
+import multiprocessing as mp
 
+import corner
+import emcee
 import numpy as np
 from matplotlib import pyplot as plt
 from munch import munchify as dict2class
 from scipy.interpolate import interp1d
+from scipy.optimize import minimize
 from tqdm import tqdm
 from uncertainties import ufloat
+from termcolor import cprint
 
 import oimalib
 
 from . import complex_models
 from .fit.dpfit import leastsqFit
 from .tools import mas2rad, round_sci_digit
+
+mp.set_start_method("fork")
 
 err_pts_style = {
     "linestyle": "None",
@@ -58,6 +64,8 @@ def select_model(name):
         model = complex_models.visCont
     elif name == "bohn":
         model = complex_models.get_full_visibility
+    elif name == "yso_line":
+        model = complex_models.visLazareff_line
     else:
         model = None
     return model
@@ -82,6 +90,8 @@ def check_params_model(param):
     elif param["model"] == "lazareff":
         la = param["la"]
         lk = param["lk"]
+        cj = param["cj"]
+        sj = param["sj"]
 
         incl = param["incl"]
         pa = param["pa"]
@@ -96,7 +106,41 @@ def check_params_model(param):
         c4 = np.invert(cond_flux)
         c5 = (la < -1) | (la > 1.5)
         c6 = (lk < -1) | (lk > 1.0)
-        if c1 | c2 | c3 | c4 | c5 | c6:
+        c7 = (cj < -1) | (cj > 1.0)
+        c8 = (sj < -1) | (sj > 1.0)
+        if c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8:
+            log = (
+                "# fs + fh + fc = 1,\n"
+                + "# 0 < incl < 90,\n"
+                + "# 0 < pa < 180 deg,\n"
+                + "# -1 < la < 1.5,\n"
+                + "# -1 < lk < 1.\n"
+            )
+            isValid = False
+    elif param["model"] == "yso_line":
+        la = param["la"]
+        lk = param["lk"]
+
+        incl = param["incl"]
+        pa = param["pa"]
+        fs = param["fs"]
+        fc = param["fc"]
+        fh = 1 - fs - fc
+        cond_flux = (fs >= 0) & (fc >= 0)
+
+        lincl = param["lincl"]
+        lpa = param["lpa"]
+
+        c1 = fs + fh + fc != 1
+        c2 = (incl > 90.0) | (incl < 0)
+        c3 = (pa < 0) | (pa > 180)
+        c4 = np.invert(cond_flux)
+        c5 = (la < -1) | (la > 1.5)
+        c6 = (lk < -1) | (lk > 1.0)
+        c7 = (lincl > 90) | (lincl < 0)
+        c8 = (lpa < 0) | (lpa > 180)
+
+        if c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8:
             log = (
                 "# fs + fh + fc = 1,\n"
                 + "# 0 < incl < 90,\n"
@@ -142,6 +186,22 @@ def comput_V2(X, param, model):
         V = model(u, v, wl, param)
         V2 = np.abs(V) ** 2
     return V2
+
+
+def comput_phi(X, param, model):
+    """ Compute phase visibility for a given model."""
+    u = X[0]
+    v = X[1]
+    wl = X[2]
+
+    isValid = check_params_model(param)[0]
+
+    if not isValid:
+        phi = np.nan
+    else:
+        V = model(u, v, wl, param)
+        phi = np.angle(V, deg=True)
+    return phi
 
 
 def comput_CP(X, param, model):
@@ -208,9 +268,11 @@ def model_standard(obs, param):
             elif typ == "CP":
                 X = obs[i][0]
                 mod = comput_CP(X, param, model_target)
+            elif typ == "phi":
+                X = obs[i][0]
+                mod = comput_phi(X, param, model_target)
             else:
                 mod = np.nan
-
             res[i] = mod
         except TypeError:
             pass
@@ -223,7 +285,7 @@ def model_parallelized(obs, param, ncore=12):
     """
     Compute model for each data points in obs tuple (multiprocess version).
     """
-    pool = Pool(ncore)
+    pool = mp.Pool(ncore)
 
     b = np.array([param] * len(obs))
     c = b.reshape(len(obs), 1)
@@ -644,10 +706,11 @@ def smartfit(
     epsfcn=1e-7,
     normalizeErrors=False,
     scale_err=1,
-    fitCP=True,
-    fitVis=False,
-    onlyCP=False,
+    # fitCP=True,
+    # fitVis=False,
+    # onlyCP=False,
     verbose=False,
+    fitted=["CP", "V2"],
 ):
     """
     Perform the fit of V2 and CP data contained in the obs tuple.
@@ -674,13 +737,19 @@ def smartfit(
 
     save_obs = obs.copy()
 
-    if onlyCP:
-        cond = save_obs[:, 1] == "CP"
-        obs = save_obs[cond]
+    obs = []
+    for o in save_obs:
+        if o[1] in fitted:
+            obs.append(o)
+    obs = np.array(obs)
 
-    if not fitCP and not onlyCP:
-        cond = save_obs[:, 1] == "V2"
-        obs = save_obs[cond]
+    # if onlyCP:
+    #     cond = save_obs[:, 1] == "CP"
+    #     obs = save_obs[cond]
+
+    # if not fitCP and not onlyCP:
+    #     cond = save_obs[:, 1] == "V2"
+    #     obs = save_obs[cond]
 
     errs = [o[-1] for o in obs]
     if normalizeErrors:
@@ -723,7 +792,10 @@ def smartfit(
 
     p = {}
     for k in fitOnly:
-        p[k] = ufloat(lfit["best"][k], lfit["uncer"][k])
+        err = lfit["uncer"][k]
+        if err < 0:
+            err = np.nan
+        p[k] = ufloat(lfit["best"][k], err)
     lfit["p"] = p
     return lfit
 
@@ -784,9 +856,9 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
     e_vis2_data = data.e_vis2.flatten()
     flag_V2 = data.flag_vis2.flatten()
 
-    # dvis_data = data.dvis.flatten()
-    # e_dvis_data = data.e_dvis.flatten()
-    # flag_dvis = data.flag_dvis.flatten()
+    dvis_data = data.dvis.flatten()
+    e_dvis_data = data.e_dvis.flatten()
+    flag_dvis = data.flag_dvis.flatten()
 
     cp_data = data.cp.flatten()
     e_cp_data = data.e_cp.flatten()
@@ -816,14 +888,14 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
                 obs.append([tmp, typ, obser, err])
     N_v2 = len(obs)
 
-    # for i in range(nbl * nwl):
-    #     if not flag_dvis[i]:
-    #         tmp = [uv.u[i], uv.v[i], wl_data[i]]
-    #         typ = "V"
-    #         obser = dvis_data[i]
-    #         err = e_dvis_data[i]
-    #         obs.append([tmp, typ, obser, err])
-    # N_vis = len(obs) - N_v2
+    for i in range(nbl * nwl):
+        if not flag_dvis[i]:
+            tmp = [uv.u[i], uv.v[i], wl_data[i]]
+            typ = "V"
+            obser = dvis_data[i]
+            err = e_dvis_data[i]
+            obs.append([tmp, typ, obser, err])
+    N_vis = len(obs) - N_v2
 
     for i in range(ncp * nwl):
         if not flag_CP[i]:
@@ -839,11 +911,243 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
             typ = "CP"
             obser = cp_data[i]
             err = e_cp_data[i]
-            obs.append([tmp, typ, obser, err])
-    N_cp = len(obs) - N_v2  # - N_vis
+            if ~np.isnan(obser) | ~np.isnan(err):
+                obs.append([tmp, typ, obser, err])
+    N_cp = len(obs) - N_v2 - N_vis
 
     Obs = np.array(obs, dtype=object)
 
     if verbose:
         print("\nTotal # of data points: %i (%i V2, %i CP)" % (len(Obs), N_v2, N_cp))
     return Obs
+
+
+# MCMC estimation of uncertainties and refined parameter estimates
+
+
+def _compute_model_mcmc(p_mcmc, obs, param, fitOnly):
+    """ Compute model for mcmc purpose changing only the parameters from `fitOnly`.
+    
+    Parameters:
+    -----------
+    `p_mcmc` {list, float}:
+        List of parameter values formated for mcmc fitting process (the order is
+        the same as `fitOnly` one),\n
+    `obs` {array}: 
+        List of data formated with oimalib.format_obs(). obs[0] is the u, v and
+        wl position, obs[1] is the observable type ('V2', 'CP', 'VIS'), obs[2]
+        is the observable value and obs[3] is the uncertainty,\n
+    `param` {dict}:
+        Dictionnary of parameters used with oimalib features,\n
+    `fitOnly` {list, str}:
+        List of parameters to be fit (smartfit LM or MCMC).
+        
+    Results:
+    --------
+    `model` {array}:
+        Computed model values sorted as obs (model.shape = len(observables)).
+    """
+    for i, p in enumerate(fitOnly):
+        param[p] = p_mcmc[i]
+    model = model_standard(obs, param)
+    return np.array(model)
+
+
+def log_prior(param, prior, fitOnly):
+    """ Return -inf if param[p] is outside prior requirements."""
+    for i, p in enumerate(fitOnly):
+        if param[i] < prior[p][0] or (param[i] > prior[p][1]):
+            return -np.inf
+    return 0
+
+
+def log_likelihood(p_mcmc, obs, param, fitOnly):
+    """ Compute the likelihood estimation between the model (represented by param
+    and only for fitOnly parameters) and the data (obs).
+    
+    Parameters:
+    -----------
+    `p_mcmc` {list, float}:
+        List of parameter values formated for mcmc fitting process (the order is
+        the same as `fitOnly` one),\n
+    `obs` {array}: 
+        List of data formated with oimalib.format_obs(). obs[0] is the u, v and
+        wl position, obs[1] is the observable type ('V2', 'CP', 'VIS'), obs[2]
+        is the observable value and obs[3] is the uncertainty,\n
+    `param` {dict}:
+        Dictionnary of parameters used with oimalib features,\n
+    `fitOnly` {list, str}:
+        List of parameters to be fit (smartfit LM or MCMC).
+    """
+    model = _compute_model_mcmc(p_mcmc, obs, param, fitOnly)
+
+    y = obs[:, 2]
+    e_y = obs[:, 3]
+
+    res = -0.5 * np.sum((y - model) ** 2 / e_y ** 2)
+
+    if np.isnan(res):
+        return -np.inf
+    else:
+        return res
+
+
+def log_probability(p_mcmc, obs, param, fitOnly, prior):
+    """ Similar to log_probability() but including the prior restrictions.
+    
+    Parameters:
+    -----------
+    `p_mcmc` {list, float}:
+        List of parameter values formated for mcmc fitting process (the order is
+        the same as `fitOnly` one),\n
+    `obs` {array}: 
+        List of data formated with oimalib.format_obs(). obs[0] is the u, v and
+        wl position, obs[1] is the observable type ('V2', 'CP', 'VIS'), obs[2]
+        is the observable value and obs[3] is the uncertainty,\n
+    `param` {dict}:
+        Dictionnary of parameters used with oimalib features,\n
+    `fitOnly` {list, str}:
+        List of parameters to be fit (smartfit LM or MCMC),\n
+    `prior` {dict}:
+        Dictionnary with the keys as fitOnly where the param[a] need to be
+        between prior[a][0] <= param[a] <= prior[a][1]. 
+    """
+    lp = log_prior(p_mcmc, prior, fitOnly)
+    if not np.isfinite(lp):
+        return -np.inf
+    return lp + log_likelihood(p_mcmc, obs, param, fitOnly)
+
+
+def neg_like_prob(*args):
+    """Minus log_probability computed to be used with minimize (scipy.optimize)."""
+    return -log_probability(*args)
+
+
+def _compute_initial_dist_mcmc(
+    nwalkers, fitOnly, method="normal", w_walker=0.1, param=None, prior=None,
+):
+    nparam = len(fitOnly)
+    pos = np.zeros([nwalkers, nparam])
+
+    if method == "normal":
+        for i in range(nparam):
+            pp = param[fitOnly[i]]
+            if pp == 0:
+                i_p = prior[fitOnly[i]]
+                m1, m2 = i_p[0], i_p[1]
+                i_range = np.random.uniform(m1, m2, nwalkers)
+            else:
+                i_range = np.random.normal(pp, w_walker * pp, nwalkers)
+            pos[:, i] = i_range
+    elif method == "prior":
+        for i in range(nparam):
+            pp = param[fitOnly[i]]
+            i_p = prior[fitOnly[i]]
+            m1, m2 = i_p[0], i_p[1]
+            i_range = np.random.uniform(m1, m2, nwalkers)
+            pos[:, i] = i_range
+
+    return pos
+
+
+def mcmcfit(
+    obs,
+    first_guess,
+    nwalkers=20,
+    niter=150,
+    prior=None,
+    truths=None,
+    fitOnly=None,
+    guess_likehood=False,
+    method="normal",
+    threads=1,
+    progress=True,
+    plot_corner=True,
+    burnin=50,
+    fitted=["V2", "CP"],
+):
+    """ """
+    ndim = len(fitOnly)
+
+    save_obs = obs.copy()
+    obs = []
+    for o in save_obs:
+        if o[1] in fitted:
+            obs.append(o)
+        # cond = save_obs[:, 1] == "V2"
+        # obs = save_obs[cond]
+    obs = np.array(obs)
+
+    args = (obs, first_guess, fitOnly, prior)
+
+    initial_mcmc = [first_guess[p] for p in fitOnly]
+    if guess_likehood:
+        initial_mcmc = [first_guess[p] for p in fitOnly]
+        initial_like = np.array(initial_mcmc) + 0.1 * np.random.randn(len(initial_mcmc))
+        soln = minimize(neg_like_prob, initial_like, args=args)
+        initial_mcmc = soln.x
+
+        print("\nMaximum likelihood estimates:")
+        for i in range(ndim):
+            print("%s = %2.3f" % (fitOnly[i], initial_mcmc[i]))
+
+    sampler = emcee.EnsembleSampler(
+        nwalkers, ndim, log_probability, args=args, pool=mp.Pool(threads),
+    )
+
+    pos = _compute_initial_dist_mcmc(
+        nwalkers, fitOnly, method=method, param=first_guess, prior=prior,
+    )
+
+    cprint("------- MCMC is running ------", "cyan")
+    sampler.run_mcmc(
+        pos, niter, progress=progress, skip_initial_state_check=True,
+    )
+
+    if burnin > niter:
+        cprint(
+            "## Warning: Burnin = %i should be < %i iter (force to zero)."
+            % (burnin, niter),
+            "green",
+        )
+        cprint("-> You should increase the niter value (typically >100)", "green")
+        burnin = 0
+
+    flat_samples = sampler.get_chain(discard=burnin, thin=15, flat=True)
+    for i in range(ndim):
+        mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
+        q = np.diff(mcmc)
+        txt = "{3} = {0:.3f}_{{-{1:.3f}}}^{{{2:.3f}}}"
+        txt = txt.format(mcmc[1], q[0], q[1], fitOnly[i])
+        print(txt)
+
+    if plot_corner:
+        corner.corner(
+            flat_samples,
+            labels=fitOnly,
+            bins=50,
+            show_titles=True,
+            title_fmt=".3f",
+            color="k",
+            truths=truths,
+        )
+    return sampler
+
+
+def get_mcmc_results(sampler, param, fitOnly, burnin=200):
+    flat_samples = sampler.get_chain(discard=burnin, thin=15, flat=True)
+
+    ndim = len(fitOnly)
+
+    fit_mcmc = {}
+    fit_mcmc["best"] = param.copy()
+    fit_mcmc["uncer"] = {}
+    for i in range(ndim):
+        mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
+        q = np.diff(mcmc)
+        txt = "{3} = {0:.3f}_{{-{1:.3f}}}^{{{2:.3f}}}"
+        txt = txt.format(mcmc[1], q[0], q[1], fitOnly[i])
+        print(txt)
+        fit_mcmc["best"][fitOnly[i]] = mcmc[1]
+        fit_mcmc["uncer"][fitOnly[i]] = max(q[0], q[1])
+    return fit_mcmc

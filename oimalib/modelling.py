@@ -323,9 +323,7 @@ def compute_geom_model(data, param, verbose=False):
     l_mod_cp = []
     for data in l_data:
         model_target = select_model(param["model"])
-
         isValid, log = check_params_model(param)
-
         if not isValid:
             cprint("\nWrong input parameters for %s model:" % (param["model"]), "green")
             print(log)

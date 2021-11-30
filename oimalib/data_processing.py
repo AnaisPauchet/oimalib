@@ -188,6 +188,7 @@ def select_data(
     err_scale_cp=1,
     replace_err=False,
     seuil_v2=None,
+    seuil_cp=None,
 ):
     """ 
     Perform data selection base on uncertaintities (`cond_uncer`, `rel_max`),
@@ -258,6 +259,8 @@ def select_data(
                 e_cp = extra_error_cp
             else:
                 e_cp = np.sqrt(old_err ** 2 + extra_error_cp ** 2) * err_scale_cp
+                if seuil_cp is not None:
+                    e_cp[e_cp <= seuil_cp] = seuil_cp
             data.e_cp[j] = e_cp
 
         data.info["fmax"] = fmax
@@ -435,7 +438,7 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
 
     all_u, all_v = [], []
     for i, ind_file in enumerate(file_to_be_combined):
-        d = list_data[ind_file]
+        d = list_data[ind_file].copy()
         tmp_u, tmp_v = [], []
 
         for k, gdcp in enumerate(good_cp):
@@ -504,7 +507,15 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
 
     dvis_m, e_dvis_m = wtmn(tab_dvis, weights=weight_dvis)
     dphi_m, e_dphi_m = wtmn(tab_dphi, weights=weight_dphi)
+
+    tab_vis2[np.isnan(tab_vis2)] = 0
+    weight_vis2[np.isnan(weight_vis2)] = 1e-50
+    
     vis2_m, e_vis2_m = wtmn(tab_vis2, weights=weight_vis2)
+    
+    tab_cp[np.isnan(tab_cp)] = 0
+    weight_cp[np.isnan(weight_cp)] = 1e-50
+    
     cp_m, e_cp_m = wtmn(tab_cp, weights=weight_cp)
 
     cond_flux = [True] * len(list_data[0].flux)
@@ -539,6 +550,7 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
         "v": master_v,
         "info": list_data[0].info,
         "flag_vis2": np.zeros_like(vis2_m) != 0,
+        "flag_dvis": np.zeros_like(dvis_m) != 0,
         "flag_cp": np.zeros_like(cp_m) != 0,
         "cpname": np.array(good_cp_name),
         "bl": B,

@@ -10,11 +10,9 @@ OIFITS related function.
 """
 
 from glob import glob
-from math import isnan
 
 import numpy as np
 from astropy.io import fits
-from matplotlib import pyplot as plt
 from munch import munchify as dict2class
 
 from oimalib.plotting import dic_color
@@ -605,7 +603,7 @@ def load(namefile, cam="SC", simu=False):
     array = fitsHandler["OI_ARRAY"].header["ARRNAME"]
 
     dic_index = _compute_dic_index(index_ref, teles_ref)
-    
+
     tel = []
     for i in range(nspec):
         try:
@@ -650,6 +648,8 @@ def load(namefile, cam="SC", simu=False):
         dat = fitsHandler[0].header["DATE-OBS"]
     except KeyError:
         dat = np.nan
+
+    fitsHandler.close()
 
     info = {
         "Ins": ins,

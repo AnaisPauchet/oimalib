@@ -177,16 +177,21 @@ def wtmn(values, weights, axis=0, cons=False):
 
     values, weights -- Numpy ndarrays with the same shape.
     """
-    mn = np.average(values, weights=weights, axis=axis)
     
+    values[np.isnan(values)] = 0.
+    weights[np.isnan(values)] = 0.
+    
+    mn = np.average(values, weights=weights, axis=axis)
+
     # Fast and numerically precise:
     variance = np.average((values - mn) ** 2, weights=weights, axis=axis)
-    
+
     std = np.sqrt(variance)
     if not cons:
         std_unbias = std / np.sqrt(len(weights))
     else:
         std_unbias = std
+        
     return (mn, std_unbias)
 
 
