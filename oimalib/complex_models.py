@@ -18,7 +18,7 @@ from .tools import mas2rad, planck_law, rad2mas
 def _elong_gauss_disk(u, v, a=1.0, cosi=1.0, pa=0.0):
     """
     Return the complex visibility of an ellongated gaussian
-    of size a cosi,
+    of size a cosi (a is the radius),
     position angle PA.
     PA is major-axis, East from North
     """
@@ -30,34 +30,41 @@ def _elong_gauss_disk(u, v, a=1.0, cosi=1.0, pa=0.0):
 
     # a = rad2mas(a)
     aq2 = (a * uM) ** 2 + (a * cosi * um) ** 2
-    return np.exp(-np.pi ** 2 * aq2 / np.log(2)).astype(complex)
+    return np.exp(-np.pi ** 2 * aq2 / (np.log(2))).astype(complex)
 
 
-def _elong_lorentz_disk(u, v, pa, majorAxis, minorAxis):
-    U = (u * np.sin(pa) + v * np.cos(pa)) * majorAxis
-    V = (u * np.cos(pa) - v * np.sin(pa)) * minorAxis
-    r2 = (
-        (2 * np.pi) * (((U ** 2 + V ** 2) ** 0.5)) / np.sqrt(3)
-    )  # (2.31 close to gaussian fwhm)
-    C_centered = np.exp(-r2)
-    return C_centered
+# tmp_f = np.exp(
+#         -2
+#         * np.pi
+#         / np.sqrt(3)
+#         * q
+#         * a
+#         * np.sqrt((np.cos(psi - theta) * cos_i) ** 2 + (np.sin(psi - theta)) ** 2)
+#     )
+def _elong_lorentz_disk(u, v, a, cosi, pa):
+    # U = (u * np.sin(pa) + v * np.cos(pa)) * majorAxis
+    # V = (u * np.cos(pa) - v * np.sin(pa)) * minorAxis
+    rPA = pa - np.deg2rad(90)
+    uM = u * np.cos(rPA) - v * np.sin(rPA)
+    um = +u * np.sin(rPA) + v * np.cos(rPA)
+    aq = ((a * uM) ** 2 + (a * cosi * um) ** 2) ** 0.5
 
+    return np.exp(-(2 * np.pi * aq) / np.sqrt(3))
 
-# def _elong_thick_ring(u, v, pa, majorAxis, minorAxis):
-#     U = (u * np.sin(pa) + v * np.cos(pa)) * majorAxis
-#     V = (u * np.cos(pa) - v * np.sin(pa)) * minorAxis
-#     r = np.sqrt(U ** 2 + V ** 2)
-#     C_centered = special.j0(np.pi * r)
-#     return C_centered
+    # r2 = (
+    #     (2 * np.pi) * (((U ** 2 + V ** 2) ** 0.5)) / np.sqrt(3)
+    # )  # (2.31 close to gaussian fwhm)
+    # C_centered = np.exp(-r2)
+    # return C_centered
 
 
 def norm(x, y):
     return np.sqrt(x ** 2 + y ** 2)
 
 
-def _elong_thick_ring(u, v, a=1.0, cosi=1.0, pa=0.0, c1=0.0, s1=0.0):
+def _elong_ring(u, v, a=1.0, cosi=1.0, pa=0.0, c1=0.0, s1=0.0):
     """
-    Return the complex visibility of an ellongated gaussian
+    Return the complex visibility of an elongated ring
     of size a cosi,
     position angle PA.
     PA is major-axis, East from North
@@ -76,8 +83,14 @@ def _elong_thick_ring(u, v, a=1.0, cosi=1.0, pa=0.0, c1=0.0, s1=0.0):
     rho1 = norm(c1, s1)
     phi1 = np.arctan2(s1, c1)
 
+    if rho1 == 0:
+        mod = 0
+    else:
+        # print(1.0j * rho1 * np.cos(psi - phi1) * special.jv(1, z))
+        mod = -1.0j * rho1 * np.cos(psi - phi1) * special.jv(1, z)
+
     # Visibility
-    v = special.jv(0, z) - 1.0j * rho1 * np.cos(psi - phi1) * special.jv(1, z)
+    v = special.jv(0, z) + mod
     return v.astype(complex)
 
 
@@ -373,7 +386,7 @@ def visYSO(Utable, Vtable, Lambda, param):
     fh = 1 - fs - fc
 
     param_disk = {
-        "fwhm": 2 * param["hfr"],
+        "fwhm": 2 * param["hfr"],  # For ellipsoid, fwhm is the radius
         "flor": param["flor"],
         "pa": param["pa"],
         "incl": param["incl"],
@@ -426,26 +439,37 @@ def visLazareff(Utable, Vtable, Lambda, param):
 
     kr = 10.0 ** (lk)
     ar = 10 ** la / (np.sqrt(1 + kr ** 2))
-    ak = ar * (10 ** lk)
+    ak = ar * kr
+    # print(ar, ak)
+    # self.a_r = 10 ** self.l_a / np.sqrt(1 + 10 ** (2 * self.l_kr))
+    # self.a_k = 10 ** self.l_kr * self.a_r
 
     ar_rad = mas2rad(ar)
-    majorAxis = ar_rad
-    # minorAxis = majorAxis * elong
+    semi_majorAxis = ar_rad
 
     pa = np.deg2rad(param["pa"])
 
     fs = param["fs"]
     fc = param["fc"]
-    fh = 1 - fs - fc
+    fh = 1 - fc - fs
 
-    param_ker = {
-        "pa": param["pa"],
-        "incl": param["incl"],
-        "fwhm": ak,
-        "flor": param["flor"],
-    }
-
-    Vkernel = visEllipsoid(Utable, Vtable, Lambda, param_ker)
+    if param["type"] == "smooth":
+        param_ker = {
+            "pa": param["pa"],
+            "incl": param["incl"],
+            "fwhm": 2 * ak,
+            "flor": param["flor"],
+        }
+        Vkernel = visEllipsoid(Utable, Vtable, Lambda, param_ker)
+    elif param["type"] == "uniform":
+        param_ker = {
+            "diam": 2 * ak,
+            "x0": 0,
+            "y0": 0,
+        }
+        Vkernel = visUniformDisk(Utable, Vtable, Lambda, param_ker)
+    else:
+        Vkernel = 1
 
     try:
         cj = param["cj"]
@@ -454,16 +478,101 @@ def visLazareff(Utable, Vtable, Lambda, param):
         cj = 0
         sj = 0
 
-    # if cj is not None:
-    #     azimuth_mod = _azimuth_modulation_mod(
-    #         Utable, Vtable, Lambda, pa, elong, mas2rad(ar), cj, sj
-    #     )
-    # else:
-    #     azimuth_mod = 0
+    Vring = (
+        _elong_ring(u, v, a=semi_majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj) * Vkernel
+    )
+
+    ks = param["ks"]
+    kc = param["kc"]
+    wl0 = 2.2e-6
+
+    fs_lambda = fs * (wl0 / Lambda) ** ks
+    fc_lambda = fc * (wl0 / Lambda) ** kc
+    fh_lambda = fh * (wl0 / Lambda) ** ks
+    p_s1 = {"x0": 0, "y0": 0}
+    s1 = fs_lambda * visPointSource(Utable, Vtable, Lambda, p_s1)
+    s2 = fc_lambda * Vring
+    ftot = fs_lambda + fh_lambda + fc_lambda
+    return (s1 + s2) / ftot
+
+
+def visLazareff_halo(Utable, Vtable, Lambda, param):
+    """
+    Compute complex visibility of a Lazareff model (star + thick ring + resolved
+    halo). The halo contribution is computed with 1 - fc - fs.
+    
+    Params:
+    -------
+    `la` {float}:
+        Half major axis of the disk (log),\n
+    `lr` {float}:
+        Kernel half light (log),\n
+    `flor` {float}:
+        Weighting for radial profile (0 gaussian kernel,
+        1 Lorentizian kernel),\n
+    `incl` {float}:
+        Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)),\n
+    `pa` {float}:
+        Orientation of the disk (from north to East) [rad],\n
+    `fs` {float}:
+        Flux contribution of the star [%],\n
+    `fc` {float}:
+        Flux contribution of the disk [%],\n
+    `ks` {float}:
+        Spectral index compared to reference wave at 2.2 µm,\n
+    `c1`, `s1` {float}:
+        Cosine and sine amplitude for the mode 1 (azimutal changes),\n
+    
+    """
+    u = Utable / Lambda
+    v = Vtable / Lambda
+    # List of parameter
+
+    elong = np.cos(np.deg2rad(param["incl"]))
+    la = param["la"]
+    lk = param["lk"]
+
+    kr = 10.0 ** (lk)
+    ar = 10 ** la / (np.sqrt(1 + kr ** 2))
+    ak = ar * kr
+    
+    ar_rad = mas2rad(ar)
+    semi_majorAxis = ar_rad
+
+    pa = np.deg2rad(param["pa"])
+
+    fh = param["fh"]
+    fc = param["fc"]
+    fs = 1 - fc - fh
+
+    if param["type"] == "smooth":
+        param_ker = {
+            "pa": param["pa"],
+            "incl": param["incl"],
+            "fwhm": 2 * ak,
+            "flor": param["flor"],
+        }
+        Vkernel = visEllipsoid(Utable, Vtable, Lambda, param_ker)
+    elif param["type"] == "uniform":
+        param_ker = {
+            "diam": 2 * ak,
+            "x0": 0,
+            "y0": 0,
+        }
+        Vkernel = visUniformDisk(Utable, Vtable, Lambda, param_ker)
+    else:
+        Vkernel = 1
+
+    try:
+        cj = param["cj"]
+        sj = param["sj"]
+    except Exception:
+        cj = 0
+        sj = 0
 
     Vring = (
-        _elong_thick_ring(u, v, a=majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj)
-    ) * Vkernel
+        _elong_ring(u, v, a=semi_majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj) * Vkernel
+    )
 
     ks = param["ks"]
     kc = param["kc"]
@@ -545,11 +654,9 @@ def visLazareff_line(Utable, Vtable, Lambda, param):
         cj = 0
         sj = 0
 
-    Vring = (
-        _elong_thick_ring(u, v, a=majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj)
-    ) * Vkernel
+    Vring = (_elong_ring(u, v, a=majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj)) * Vkernel
 
-    # Vring = (_elong_thick_ring(u, v, pa, majorAxis, minorAxis) + azimuth_mod) * Vkernel
+    # Vring = (_elong_ring(u, v, pa, majorAxis, minorAxis) + azimuth_mod) * Vkernel
 
     ks = param["ks"]
     kc = param["kc"]
@@ -691,13 +798,15 @@ def visEllipsoid(Utable, Vtable, Lambda, param):
     # because of the inclination
     incl = np.deg2rad(param["incl"])
     elong = np.cos(incl)
-    majorAxis = mas2rad(param["fwhm"])
-    minorAxis = elong * majorAxis
+    semi_majorAxis = mas2rad(param["fwhm"]) / 2.0
+    # minorAxis = elong * majorAxis
+
+    # majorAxis is the half-radius
 
     flor = param["flor"]
 
-    Vlor = _elong_lorentz_disk(u, v, pa, majorAxis, minorAxis)
-    Vgauss = _elong_gauss_disk(u, v, a=majorAxis, cosi=elong, pa=pa)
+    Vlor = _elong_lorentz_disk(u, v, a=semi_majorAxis, cosi=elong, pa=pa)
+    Vgauss = _elong_gauss_disk(u, v, a=semi_majorAxis, cosi=elong, pa=pa)
 
     Vc = (1 - flor) * Vgauss + flor * Vlor
     return Vc

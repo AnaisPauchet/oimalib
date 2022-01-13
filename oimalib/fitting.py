@@ -1,5 +1,3 @@
-import multiprocessing as mp
-
 import corner
 import emcee
 import numpy as np
@@ -17,7 +15,11 @@ from . import complex_models
 from .fit.dpfit import leastsqFit
 from .tools import mas2rad, round_sci_digit
 
-mp.set_start_method("fork")
+import multiprocessing
+import sys
+
+if sys.platform == "darwin":
+    multiprocessing.set_start_method("fork", force=True)
 
 err_pts_style = {
     "linestyle": "None",
@@ -58,6 +60,8 @@ def select_model(name):
         model = complex_models.visYSO
     elif name == "lazareff":
         model = complex_models.visLazareff
+    elif name == "lazareff_halo":
+        model = complex_models.visLazareff_halo
     elif name == "ellipsoid":
         model = complex_models.visEllipsoid
     elif name == "cont":
@@ -92,29 +96,71 @@ def check_params_model(param):
         lk = param["lk"]
         cj = param["cj"]
         sj = param["sj"]
+        kc = param["kc"]
 
+        flor = param["flor"]
         incl = param["incl"]
         pa = param["pa"]
+        
         fs = param["fs"]
         fc = param["fc"]
         fh = 1 - fs - fc
-        cond_flux = (fs >= 0) & (fc >= 0)
+        cond_flux = (fh >= 0) & (fc >= 0) & (fs >= 0)
 
         c1 = fs + fh + fc != 1
         c2 = (incl > 90.0) | (incl < 0)
-        c3 = (pa < 0) | (pa > 180)
+        c3 = (pa < -180) | (pa > 180)
         c4 = np.invert(cond_flux)
         c5 = (la < -1) | (la > 1.5)
         c6 = (lk < -1) | (lk > 1.0)
         c7 = (cj < -1) | (cj > 1.0)
         c8 = (sj < -1) | (sj > 1.0)
-        if c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8:
+        c9 = (kc < -1) | (kc > 0)
+        c10 = (flor < 0) | (flor > 1)
+        if c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10:
             log = (
                 "# fs + fh + fc = 1,\n"
                 + "# 0 < incl < 90,\n"
                 + "# 0 < pa < 180 deg,\n"
                 + "# -1 < la < 1.5,\n"
                 + "# -1 < lk < 1.\n"
+                + "# -1 < cj, sj < 1.\n"
+            )
+            isValid = False
+    elif param["model"] == "lazareff_halo":
+        la = param["la"]
+        lk = param["lk"]
+        cj = param["cj"]
+        sj = param["sj"]
+        kc = param["kc"]
+
+        flor = param["flor"]
+        incl = param["incl"]
+        pa = param["pa"]
+        
+        fh = param["fh"]
+        fc = param["fc"]
+        fs = 1 - fh - fc
+        cond_flux = (fh >= 0) & (fc >= 0) & (fs >= 0)
+
+        c1 = fs + fh + fc != 1
+        c2 = (incl > 90.0) | (incl < 0)
+        c3 = (pa < -180) | (pa > 180)
+        c4 = np.invert(cond_flux)
+        c5 = (la < -1) | (la > 1.5)
+        c6 = (lk < -1) | (lk > 1.0)
+        c7 = (cj < -1) | (cj > 1.0)
+        c8 = (sj < -1) | (sj > 1.0)
+        c9 = (kc < -1) | (kc > 0)
+        c10 = (flor < 0) | (flor > 1)
+        if c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10:
+            log = (
+                "# fs + fh + fc = 1,\n"
+                + "# 0 < incl < 90,\n"
+                + "# 0 < pa < 180 deg,\n"
+                + "# -1 < la < 1.5,\n"
+                + "# -1 < lk < 1.\n"
+                + "# -1 < cj, sj < 1.\n"
             )
             isValid = False
     elif param["model"] == "yso_line":
@@ -281,11 +327,63 @@ def model_standard(obs, param):
     return output
 
 
+def model_standard_fast(d, param):
+    l_mod_cp, l_mod_cvis = [], []
+    for data in d:
+        nbl = len(data.u)
+        ncp = len(data.cp)
+        model_target = select_model(param["model"])
+        mod_cvis = []  # np.zeros_like(data.vis2, dtype=complex)
+        for i in range(nbl):
+            vis2 = data.vis2[i]
+            if len(vis2[~np.isnan(vis2)]) != 0:
+                flag = data.flag_vis2[i]
+                u, v, wl = data.u[i], data.v[i], data.wl[~flag]
+                mod_cvis.append(model_target(u, v, wl, param))
+        mod_cp = []  # np.zeros_like(data.cp)
+        for i in range(ncp):
+            cp = data.cp[i]
+            cond_bad_cp = len(cp[~np.isnan(cp)]) != 0
+            if cond_bad_cp:
+                flag = data.flag_cp[i]
+                u1, u2, u3 = data.u1[i], data.u2[i], data.u3[i]
+                v1, v2, v3 = data.v1[i], data.v2[i], data.v3[i]
+                wl2 = data.wl[~flag]
+                X = [u1, u2, u3, v1, v2, v3, wl2]
+                tmp = comput_CP(X, param, model_target)
+                mod_cp.append(tmp)
+        l_mod_cp.append(mod_cp)
+        l_mod_cvis.append(mod_cvis)
+    l_mod_cp = np.array(l_mod_cp)
+    l_mod_cvis = np.array(l_mod_cvis)
+
+    fitted = param["fitted"]
+    model_fast = []
+    for i in range(len(l_mod_cvis)):
+        if "V2" in fitted:
+            model_fast += list(np.abs(l_mod_cvis[i].flatten()) ** 2)
+        if "V" in fitted:
+            model_fast += np.abs(l_mod_cvis[i].flatten())
+        if "phi" in fitted:
+            model_fast += np.angle(l_mod_cvis[i].flatten(), deg=True)
+        if "CP":
+            model_fast += list(l_mod_cp[i].flatten())
+    model_fast = np.array(model_fast)
+
+    npts = len(model_fast)
+    isValid = check_params_model(param)[0]
+    if isValid:
+        model_fast
+    else:
+        model_fast = [np.nan] * npts
+    return model_fast
+
+
 def model_parallelized(obs, param, ncore=12):
     """
     Compute model for each data points in obs tuple (multiprocess version).
     """
-    pool = mp.Pool(ncore)
+    pool = multiprocessing.Pool(ncore)
 
     b = np.array([param] * len(obs))
     c = b.reshape(len(obs), 1)
@@ -695,68 +793,144 @@ def compute_chi2_curve(
     return fit, errors_chi2
 
 
+# def smartfit(
+#     obs,
+#     first_guess,
+#     doNotFit=None,
+#     fitOnly=None,
+#     follow=None,
+#     multiproc=False,
+#     ftol=1e-4,
+#     epsfcn=1e-7,
+#     normalizeErrors=False,
+#     scale_err=1,
+#     # fitCP=True,
+#     # fitVis=False,
+#     # onlyCP=False,
+#     verbose=False,
+#     fitted=["CP", "V2"],
+# ):
+#     """
+#     Perform the fit of V2 and CP data contained in the obs tuple.
+
+#     Parameters:
+#     -----------
+
+#     obs: {tuple}
+#         Tuple containing all the selected data from format_obs function.\n
+#     first_guess: {dict}
+#         Parameters of the model.\n
+#     fitOnly: {list}
+#         fitOnly is a LIST of keywords to fit. By default, it fits all parameters in 'first_guess'.\n
+#     follow: {list}
+#         List of parameters to "follow" in the fit, i.e. to print in verbose mode.\n
+#     multiproc: {boolean}
+#         If True, use ModelM to compute the model with pool (12 cores by default).\n
+#     normalizeErrors: {boolean}
+#         If True, give the same weight for the V2 and CP data (even if only few CP compare to V2).\n
+#     fitCP: {boolean}
+#         If True, fit the CP data. If not fit only the V2 data.\n
+
+#     """
+
+#     save_obs = obs.copy()
+
+#     obs = []
+#     for o in save_obs:
+#         if o[1] in fitted:
+#             obs.append(o)
+#     obs = np.array(obs)
+
+#     errs = [o[-1] for o in obs]
+#     if normalizeErrors:
+#         errs = _normalize_err_obs(obs)
+
+#     first_guess["fitted"] = fitted
+#     # -- avoid fitting string parameters
+#     tmp = list(filter(lambda x: isinstance(first_guess[x], str), first_guess.keys()))
+#     # tmp = list(filter(lambda x: isinstance(tmp[x], list), tmp.keys()))
+
+#     if len(tmp) > 0:
+#         if doNotFit is None:
+#             doNotFit = tmp
+#         else:
+#             doNotFit.extend(tmp)
+#         try:
+#             fitOnly = list(
+#                 filter(lambda x: not isinstance(first_guess[x], str), fitOnly)
+#             )
+#         except Exception:
+#             pass
+
+#     if multiproc:
+#         M = model_standard_fast
+#     else:
+#         M = model_standard
+
+#     # M = model_standard_fast
+
+#     lfit = leastsqFit(
+#         M,
+#         obs,
+#         first_guess,
+#         [o[2] for o in obs],
+#         err=np.array(errs) * scale_err,
+#         doNotFit=doNotFit,
+#         fitOnly=fitOnly,
+#         follow=follow,
+#         normalizedUncer=False,
+#         verbose=verbose,
+#         ftol=ftol,
+#         epsfcn=epsfcn,
+#     )
+
+#     p = {}
+#     for k in fitOnly:
+#         err = lfit["uncer"][k]
+#         if err < 0:
+#             err = np.nan
+#         p[k] = ufloat(lfit["best"][k], err)
+#     lfit["p"] = p
+#     return lfit
+
+
 def smartfit(
-    obs,
+    data,
     first_guess,
     doNotFit=None,
     fitOnly=None,
     follow=None,
-    multiproc=False,
     ftol=1e-4,
     epsfcn=1e-7,
     normalizeErrors=False,
     scale_err=1,
-    # fitCP=True,
-    # fitVis=False,
-    # onlyCP=False,
     verbose=False,
-    fitted=["CP", "V2"],
+    tobefit=["CP", "V2"],
 ):
     """
-    Perform the fit of V2 and CP data contained in the obs tuple.
+    Perform the fit the observable in `tobefit` contained in data list (or class).
 
     Parameters:
     -----------
 
-    obs: {tuple}
-        Tuple containing all the selected data from format_obs function.\n
+    data: {list}
+        List containing all the selected data from `load()` function.\n
     first_guess: {dict}
         Parameters of the model.\n
     fitOnly: {list}
         fitOnly is a LIST of keywords to fit. By default, it fits all parameters in 'first_guess'.\n
     follow: {list}
         List of parameters to "follow" in the fit, i.e. to print in verbose mode.\n
-    multiproc: {boolean}
-        If True, use ModelM to compute the model with pool (12 cores by default).\n
     normalizeErrors: {boolean}
-        If True, give the same weight for the V2 and CP data (even if only few CP compare to V2).\n
-    fitCP: {boolean}
-        If True, fit the CP data. If not fit only the V2 data.\n
-
+        If True, give the same weight for each observables (even if only few CP compare to V2).
     """
-
-    save_obs = obs.copy()
-
-    obs = []
-    for o in save_obs:
-        if o[1] in fitted:
-            obs.append(o)
-    obs = np.array(obs)
-
-    # if onlyCP:
-    #     cond = save_obs[:, 1] == "CP"
-    #     obs = save_obs[cond]
-
-    # if not fitCP and not onlyCP:
-    #     cond = save_obs[:, 1] == "V2"
-    #     obs = save_obs[cond]
-
-    errs = [o[-1] for o in obs]
-    if normalizeErrors:
-        errs = _normalize_err_obs(obs)
+    first_guess["fitted"] = tobefit
 
     # -- avoid fitting string parameters
     tmp = list(filter(lambda x: isinstance(first_guess[x], str), first_guess.keys()))
+
+    if type(data) is not list:
+        data = [data]
 
     if len(tmp) > 0:
         if doNotFit is None:
@@ -770,16 +944,27 @@ def smartfit(
         except Exception:
             pass
 
-    if multiproc:
-        M = model_parallelized
-    else:
-        M = model_standard
+    M = model_standard_fast
+
+    obs = np.concatenate([oimalib.format_obs(x) for x in data])
+    save_obs = obs.copy()
+    obs = []
+    for o in save_obs:
+        if o[1] in tobefit:
+            obs.append(o)
+    obs = np.array(obs)
+
+    errs = [o[-1] for o in obs]
+    if normalizeErrors:
+        errs = _normalize_err_obs(obs)
+
+    Y = [o[2] for o in obs]
 
     lfit = leastsqFit(
         M,
-        obs,
+        data,
         first_guess,
-        [o[2] for o in obs],
+        Y,
         err=np.array(errs) * scale_err,
         doNotFit=doNotFit,
         fitOnly=fitOnly,
@@ -925,7 +1110,7 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
 # MCMC estimation of uncertainties and refined parameter estimates
 
 
-def _compute_model_mcmc(p_mcmc, obs, param, fitOnly):
+def _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit, fast=False):
     """ Compute model for mcmc purpose changing only the parameters from `fitOnly`.
     
     Parameters:
@@ -949,7 +1134,13 @@ def _compute_model_mcmc(p_mcmc, obs, param, fitOnly):
     """
     for i, p in enumerate(fitOnly):
         param[p] = p_mcmc[i]
-    model = model_standard(obs, param)
+
+    if fast:
+        param["fitted"] = tobefit
+        M = model_standard_fast
+    else:
+        M = model_standard
+    model = M(data, param)
     return np.array(model)
 
 
@@ -961,7 +1152,7 @@ def log_prior(param, prior, fitOnly):
     return 0
 
 
-def log_likelihood(p_mcmc, obs, param, fitOnly):
+def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fast=False):
     """ Compute the likelihood estimation between the model (represented by param
     and only for fitOnly parameters) and the data (obs).
     
@@ -979,12 +1170,17 @@ def log_likelihood(p_mcmc, obs, param, fitOnly):
     `fitOnly` {list, str}:
         List of parameters to be fit (smartfit LM or MCMC).
     """
-    model = _compute_model_mcmc(p_mcmc, obs, param, fitOnly)
+    model = _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit, fast=fast)
 
     y = obs[:, 2]
     e_y = obs[:, 3]
 
-    res = -0.5 * np.sum((y - model) ** 2 / e_y ** 2)
+    inv_sigma2 = 1.0 / (e_y ** 2)
+    res = -0.5 * (
+        np.sum((y - model) ** 2 * inv_sigma2 - np.log(inv_sigma2.astype(float)))
+    )
+
+    # res = -0.5 * np.sum((y - model) ** 2 / e_y ** 2)
 
     if np.isnan(res):
         return -np.inf
@@ -992,7 +1188,7 @@ def log_likelihood(p_mcmc, obs, param, fitOnly):
         return res
 
 
-def log_probability(p_mcmc, obs, param, fitOnly, prior):
+def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, fast=False, obs=None):
     """ Similar to log_probability() but including the prior restrictions.
     
     Parameters:
@@ -1015,7 +1211,9 @@ def log_probability(p_mcmc, obs, param, fitOnly, prior):
     lp = log_prior(p_mcmc, prior, fitOnly)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + log_likelihood(p_mcmc, obs, param, fitOnly)
+    return lp + log_likelihood(
+        p_mcmc, data, param, fitOnly, tobefit, fast=fast, obs=obs
+    )
 
 
 def neg_like_prob(*args):
@@ -1037,7 +1235,7 @@ def _compute_initial_dist_mcmc(
                 m1, m2 = i_p[0], i_p[1]
                 i_range = np.random.uniform(m1, m2, nwalkers)
             else:
-                i_range = np.random.normal(pp, w_walker * pp, nwalkers)
+                i_range = np.random.normal(pp, w_walker * abs(pp), nwalkers)
             pos[:, i] = i_range
     elif method == "prior":
         for i in range(nparam):
@@ -1046,12 +1244,14 @@ def _compute_initial_dist_mcmc(
             m1, m2 = i_p[0], i_p[1]
             i_range = np.random.uniform(m1, m2, nwalkers)
             pos[:, i] = i_range
-
+    elif method == "alex":
+        p0 = np.array([param[fitOnly[i]] for i in range(nparam)])
+        pos = p0 + 1e-1 * np.random.randn(nwalkers, nparam)
     return pos
 
 
 def mcmcfit(
-    obs,
+    data,
     first_guess,
     nwalkers=20,
     niter=150,
@@ -1064,21 +1264,25 @@ def mcmcfit(
     progress=True,
     plot_corner=True,
     burnin=50,
-    fitted=["V2", "CP"],
+    tobefit=["V2", "CP"],
+    fast=False,
 ):
     """ """
     ndim = len(fitOnly)
 
+    obs = np.concatenate([oimalib.format_obs(x) for x in data])
+
     save_obs = obs.copy()
     obs = []
     for o in save_obs:
-        if o[1] in fitted:
+        if o[1] in tobefit:
             obs.append(o)
-        # cond = save_obs[:, 1] == "V2"
-        # obs = save_obs[cond]
     obs = np.array(obs)
 
-    args = (obs, first_guess, fitOnly, prior)
+    if fast:
+        args = (data, first_guess, fitOnly, prior, tobefit, fast, obs)
+    else:
+        args = (obs, first_guess, fitOnly, prior, tobefit, fast, obs)
 
     initial_mcmc = [first_guess[p] for p in fitOnly]
     if guess_likehood:
@@ -1086,13 +1290,14 @@ def mcmcfit(
         initial_like = np.array(initial_mcmc) + 0.1 * np.random.randn(len(initial_mcmc))
         soln = minimize(neg_like_prob, initial_like, args=args)
         initial_mcmc = soln.x
-
         print("\nMaximum likelihood estimates:")
         for i in range(ndim):
             print("%s = %2.3f" % (fitOnly[i], initial_mcmc[i]))
 
+    pool = multiprocessing.Pool(threads)
+
     sampler = emcee.EnsembleSampler(
-        nwalkers, ndim, log_probability, args=args, pool=mp.Pool(threads),
+        nwalkers, ndim, log_probability, args=args, pool=pool,
     )
 
     pos = _compute_initial_dist_mcmc(
@@ -1103,6 +1308,9 @@ def mcmcfit(
     sampler.run_mcmc(
         pos, niter, progress=progress, skip_initial_state_check=True,
     )
+
+    pool.close()
+    pool.join()
 
     if burnin > niter:
         cprint(

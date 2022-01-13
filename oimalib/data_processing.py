@@ -12,6 +12,7 @@ Set of function to perform data selection.
 
 import numpy as np
 from munch import munchify
+from copy import deepcopy
 
 from oimalib.tools import binning_tab, wtmn
 
@@ -234,8 +235,10 @@ def select_data(
         "wl_bounds": wave_lim,
     }
 
+    new_list = deepcopy(list_data)
+
     list_data_sel = []
-    for data_i in list_data:
+    for data_i in new_list:
         data = data_i.copy()
         nbl = data.vis2.shape[0]
         ncp = data.cp.shape[0]
@@ -510,12 +513,12 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
 
     tab_vis2[np.isnan(tab_vis2)] = 0
     weight_vis2[np.isnan(weight_vis2)] = 1e-50
-    
+
     vis2_m, e_vis2_m = wtmn(tab_vis2, weights=weight_vis2)
-    
+
     tab_cp[np.isnan(tab_cp)] = 0
     weight_cp[np.isnan(weight_cp)] = 1e-50
-    
+
     cp_m, e_cp_m = wtmn(tab_cp, weights=weight_cp)
 
     cond_flux = [True] * len(list_data[0].flux)

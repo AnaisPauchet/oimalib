@@ -12,7 +12,7 @@ setup(
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Professional Astronomers",
         "Topic :: High Angular Resolution Astronomy :: Interferometry",
-        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.9",
     ],
     install_requires=[
         "matplotlib",

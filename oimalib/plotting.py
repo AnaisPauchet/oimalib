@@ -802,12 +802,12 @@ def plot_residuals(
         "hue": hue,
         "use_flag": use_flag,
     }
-    df_cp, chi2_cp = plot_cp_residuals(**param_plot)
+    df_cp, chi2_cp, chi2_cp_full, mod_cp = plot_cp_residuals(**param_plot)
     if save_dir is not None:
-        plt.savefig(save_dir + "residuals_CP_%sfit.png" % name)
-    df_v2, chi2_vis2 = plot_v2_residuals(**param_plot)
+        plt.savefig(save_dir + "residuals_CP_%sfit.png" % name, dpi=300)
+    df_v2, chi2_vis2, chi2_vis2_full, mod_v2 = plot_v2_residuals(**param_plot)
     if save_dir is not None:
-        plt.savefig(save_dir + "residuals_V2_%sfit.png" % name)
+        plt.savefig(save_dir + "residuals_V2_%sfit.png" % name, dpi=300)
 
     d_freedom = len(fitOnly)
 
@@ -833,8 +833,8 @@ def plot_residuals(
     title = "Statistic of the model %s" % param["model"]
     print(title)
     print("-" * len(title))
-    print("χ² = %2.1f (V² = %2.1f, CP = %2.1f)" % (chi2_global, chi2_vis2, chi2_cp))
-    return chi2_global, chi2_vis2, chi2_cp
+    print("χ² = %2.2f (V² = %2.1f, CP = %2.1f)" % (chi2_global, chi2_vis2, chi2_cp))
+    return chi2_global, chi2_vis2, chi2_cp, mod_v2, mod_cp, chi2_vis2_full, chi2_cp_full
 
 
 def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
@@ -882,9 +882,9 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     df = pd.DataFrame(dict_obs)
 
     d_freedom = len(fitOnly)
-    chi2_vis2 = np.sum(((df["vis2"] - df["mod"]) ** 2 / (df["e_vis2"]) ** 2)) / (
-        len(df["e_vis2"]) - (d_freedom - 1)
-    )
+
+    chi2_vis2_full = np.sum(((df["vis2"] - df["mod"]) ** 2 / (df["e_vis2"]) ** 2))
+    chi2_vis2 = chi2_vis2_full / (len(df["e_vis2"]) - (d_freedom - 1))
 
     label = "DATA"
     if hue == "wl":
@@ -947,7 +947,7 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
         labelbottom=False,  # labels along the bottom edge are off)
     )
     plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
-    return df, chi2_vis2
+    return df, chi2_vis2, chi2_vis2_full, mod_v2
 
 
 def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
@@ -982,7 +982,6 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
         nobs += 1
 
     dict_obs["mod"] = np.array(mod_cp).flatten()
-
     dict_obs["res"] = (dict_obs["cp"] - dict_obs["mod"]) / dict_obs["e_cp"]
 
     if use_flag:
@@ -993,10 +992,10 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
 
     df = pd.DataFrame(dict_obs)
 
-    d_freedom = 5
-    chi2_cp = np.sum(((df["cp"] - df["mod"]) ** 2 / (df["e_cp"]) ** 2)) / (
-        len(df["e_cp"]) - (d_freedom - 1)
-    )
+    d_freedom = len(fitOnly)
+
+    chi2_cp_full = np.sum(((df["cp"] - df["mod"]) ** 2 / (df["e_cp"]) ** 2))
+    chi2_cp = chi2_cp_full / (len(df["e_cp"]) - (d_freedom - 1))
 
     res_max = 5
     if np.max(abs(df["res"])) >= 5:
@@ -1062,7 +1061,7 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
         labelbottom=False,  # labels along the bottom edge are off)
     )
     plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
-    return df, chi2_cp
+    return df, chi2_cp, chi2_cp_full, mod_cp
 
 
 def plot_complex_model(
@@ -1233,6 +1232,7 @@ def plot_image_model(
     `pixel_size` {float}:
         Pixel size of the image.
     """
+    sns.reset_orig()
     # Compute base max to get the good fov
     fov = mas2rad(fov)
     bmax = (wl / fov) * npts
@@ -1662,7 +1662,9 @@ def _summary_corner_sns(x, prec=2, color="#ee9068", **kwargs):
     t_unit = {
         "f$_c$": "%",
         "incl": "deg",
-        "a$_r$": r"r$_{star}$",
+        "i": "deg",
+        "a$_r*$": r"r$_{star}$",
+        "a$_r$": "mas",
         "PA": "deg",
         "c$_j$": "",
         "s$_j$": "",
@@ -1671,7 +1673,10 @@ def _summary_corner_sns(x, prec=2, color="#ee9068", **kwargs):
     mcmc = np.percentile(x, [16, 50, 84])
     q = np.diff(mcmc)
     txt = r"{3} = {0:.%if}$_{{-{1:.%if}}}^{{+{2:.%if}}}$ {4}" % (prec, prec, prec)
-    txt = txt.format(mcmc[1], q[0], q[1], x.name, t_unit[x.name])
+    try:
+        txt = txt.format(mcmc[1], q[0], q[1], x.name, t_unit[x.name])
+    except KeyError:
+        txt = txt.format(mcmc[1], q[0], q[1], x.name, "")
     ax = plt.gca()
     ax.set_axis_off()
     ax.axvline(mcmc[0], lw=1, color=color, alpha=0.8, ls="--")
@@ -1689,25 +1694,50 @@ def _results_corner_sns(x, y, color="#ee9068", **kwargs):
     ax.axhline(p2[1], lw=1, color=color, alpha=0.8)
 
 
-def plot_mcmc_results(sampler, labels=None, burnin=200, compute_r=False, dpc=None):
+def plot_mcmc_results(
+    sampler, labels=None, burnin=200, compute_r=False, dpc=None, lk=None, prec=2
+):
     """ Plot modern corner plot using seaborn. """
     flat_samples = sampler.get_chain(discard=burnin, thin=15, flat=True)
 
     dict_mcmc = {}
     for i in range(len(labels)):
         f = 1
-        if labels[i] == "f$_c$":
+        if (labels[i] == "f$_c$") or (labels[i] == "f$_h$"):
             f = 100
-        dict_mcmc[labels[i]] = flat_samples[:-1, i] * f
+            dict_mcmc[labels[i]] = flat_samples[:-1, i] * f
+        elif labels[i] == "l$_a$":
+            if lk is not None:
+                ar = 10 ** flat_samples[:-1, i]
+                dict_mcmc["a"] = ar
+        else:
+            dict_mcmc[labels[i]] = flat_samples[:-1, i]
 
-    # try:
+    if lk is None:
+        lk = flat_samples[:-1, np.where(np.array(labels) == "l$_k$")[0][0]]
+    la = flat_samples[:-1, np.where(np.array(labels) == "l$_a$")[0][0]]
+    ar = 10 ** la / (np.sqrt(1 + 10 ** (2 * lk)))
+    ak = ar * (10 ** lk)
+    a = (ar ** 2 + ak ** 2) ** 0.5
+    dict_mcmc["a"] = a
+    w = ak / a
+
+    # dict_mcmc["w"] = w
+    try:
+        del dict_mcmc["l$_k$"]
+    except KeyError:
+        pass
+
     if compute_r:
         if dpc is None:
             raise TypeError("Distance (dpc) is required to compute the radius in AU.")
-        la = flat_samples[:-1, -1]
-        ar = 10 ** la / (np.sqrt(1 + 10 ** (2 * -1)))
-        dict_mcmc["a$_r$"] = ar * dpc * 215.0 / 2.0
-        del dict_mcmc["l$_a$"]
+        ar = dict_mcmc["a"]
+        dict_mcmc["a$_r*$"] = ar * dpc * 215.0 / 2.0
+        try:
+            del dict_mcmc["l$_a$"]
+        except KeyError:
+            pass
+        del dict_mcmc["a"]
 
     df = pd.DataFrame(dict_mcmc)
 
@@ -1715,7 +1745,7 @@ def plot_mcmc_results(sampler, labels=None, burnin=200, compute_r=False, dpc=Non
     g = sns.PairGrid(df, corner=True, height=1.7)
     g.map_lower(sns.histplot, bins=40, pthresh=0.0)
     g.map_diag(sns.histplot, bins=20, element="step", linewidth=1, kde=True, alpha=0.5)
-    g.map_diag(_summary_corner_sns, color=color)
+    g.map_diag(_summary_corner_sns, color=color, prec=prec)
     g.map_lower(_results_corner_sns, color=color)
     plt.subplots_adjust(wspace=0.05, hspace=0.05)
     return g

@@ -125,6 +125,7 @@ def leastsqFit(
     model = func(x, pfix)
     tmp = _fitFunc(plsq, fitOnly, x, y, err, func, pfix)
 
+
     try:
         chi2 = (np.array(tmp) ** 2).sum()
     except Exception:
@@ -153,6 +154,8 @@ def leastsqFit(
                 if normalizedUncer:
                     uncer[k] *= np.sqrt(reducedChi2)
 
+    pfix.pop("fitted", None)
+    
     if verbose:
         print("-" * 30)
         print("REDUCED CHI2=", reducedChi2)

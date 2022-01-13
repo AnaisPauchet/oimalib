@@ -1,29 +1,36 @@
+import numpy as np
 import oimalib
 from matplotlib import pyplot as plt
+from oimalib.fitting import check_params_model, select_model
 from oimalib.oifits import data2obs
+from glob import glob
 
-oifile = "doc/DATA/example_MATISSE_Betelgeuse.oifits"
+datadir = "/Users/soulaina/Desktop/data_binary_splited/"
+l_file = glob(datadir + "*.fits")
 
 oifile = "doc/DATA/example_GRAVITY_Binary_s3_pa45.oifits"
 
-d = oimalib.load(oifile, cam="SC", simu=True)
-
-# oifile_nrm = '/Users/asoulain/Documents/Postdoc_JWST/AMICAL/Saveoifits/example_fakebinary_NIRISS.oifits'
-# d = oimalib.load(oifile_nrm)
+data = [oimalib.load(x, cam="SC", simu=True) for x in l_file]
 
 param = {"model": "binary", "x0": 0, "y0": 0, "sep": 3, "pa": 45, "dm": 3}
 
-param2 = {"model": "disk", "x0": 0, "y0": 0, "diam": 32}
+fitOnly = ["dm", "sep", "pa"]
 
-obs = data2obs(d, err_scale_v2=1)
+fit = oimalib.smartfit(data, param, fitOnly=fitOnly)
 
-fit = oimalib.smartfit(obs, param, fitOnly=["dm", "sep", "pa"], fitted=["V2", "CP"])
+obs = np.concatenate([oimalib.format_obs(x) for x in data])
 
-mod_v2, mod_cp = oimalib.compute_geom_model(d, fit["best"])
+prior = {"dm": [0, 6], "sep": [0, 10], "pa": [0, 90]}
 
-oimalib.plot_oidata(d)
+sampler = oimalib.mcmcfit(
+    data, param, nwalkers=10, niter=10000, prior=prior, fitOnly=fitOnly, threads=32
+)
+oimalib.plot_mcmc_results(sampler, labels=fitOnly)
+# mod_v2, mod_cp = oimalib.compute_geom_model(data, fit["best"])
 
-oimalib.plot_uv(d)
+# oimalib.plot_oidata(data)
 
-oimalib.plot_residuals(d, param)
+# oimalib.plot_uv(data)
+
+oimalib.plot_residuals(data, param)
 plt.show(block=True)
