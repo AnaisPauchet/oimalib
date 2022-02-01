@@ -774,7 +774,7 @@ def compute_chi2_curve(
         ymin=ymin,
         ymax=ymax,
         color="#dbe4e8",
-        label="$\sigma_{m1}=$-%s/+%s" % (dr1_r, dr2_r),
+        label=r"$\sigma_{m1}=$-%s/+%s" % (dr1_r, dr2_r),
     )
     plt.axvspan(
         fitted_param - fit_e_theta,
@@ -782,12 +782,12 @@ def compute_chi2_curve(
         ymin=ymin,
         ymax=ymax,
         color="#359ccb",
-        label="$\sigma_{m2}$",
+        label=r"$\sigma_{m2}$",
         alpha=0.3,
     )
     plt.grid(alpha=0.1, color="grey")
     plt.legend(loc="best", fontsize=9)
-    plt.ylabel("$\chi^2_{red}$")
+    plt.ylabel(r"$\chi^2_{red}$")
     plt.xlim(array_params.min(), array_params.max())
     plt.tight_layout()
     plt.show(block=False)
