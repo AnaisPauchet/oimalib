@@ -14,7 +14,6 @@ from bisect import bisect_left, insort
 from collections import deque
 from itertools import islice
 from matplotlib import pyplot as plt
-from scipy.constants.constants import R
 from uncertainties import umath
 
 
@@ -84,6 +83,7 @@ def planck_law(T, wl, norm=False):
     sigma = cs.sigma_sb.value
     P = (4 * np.pi ** 2) * sigma * T ** 4
 
+    # print(T, wl)
     B = (
         (2 * h * c ** 2 * wl ** -5) / (np.exp(h * c / (wl * k * T)) - 1)
     ) / 1e6  # W/m2/micron
@@ -140,6 +140,42 @@ def _running_median(seq, M):
     return np.array(medians)
 
 
+def nan_interp(yall):
+    """
+    Interpolate nan from non-nan values.
+    Along the last dimension if several of them.
+    """
+    if len(yall.shape) > 1:
+        for y in yall:
+            nan_interp(y)
+    else:
+        nans, x = np.isnan(yall), lambda z: z.nonzero()[0]
+        yall[nans] = np.interp(x(nans), x(~nans), yall[~nans])
+
+
+def normalize_continuum(yall, wave, inCont, degree=3, phase=False):
+    """
+    data                          shape: [nbase,nwave]
+    wave in [um]                  shape: [nwave]
+    inCont array of True/False    shape: [nwave]
+
+    Along the last dimension if several of them.
+    Operation in done in-place.
+    """
+    if len(yall.shape) > 1:
+        # Deal with multiple dimensions
+        for y in yall:
+            normalize_continuum(y, wave, inCont, phase=phase, degree=degree)
+    else:
+        # Re-center the x array, to stabilize fit numerically
+        x = wave - np.mean(wave)
+        # Fit continuum and remove fit
+        if phase:
+            yall -= np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x)
+        else:
+            yall /= np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x)
+
+
 def substract_run_med(spectrum, wave=None, n_box=50, shift_wl=0, div=False):
     """ Substract running median from a raw spectrum `f`. The median
     is computed at each points from n_box/2 to -n_box/2+1 in a
@@ -177,10 +213,10 @@ def wtmn(values, weights, axis=0, cons=False):
 
     values, weights -- Numpy ndarrays with the same shape.
     """
-    
-    values[np.isnan(values)] = 0.
-    weights[np.isnan(values)] = 0.
-    
+
+    values[np.isnan(values)] = 0.0
+    weights[np.isnan(values)] = 0.0
+
     mn = np.average(values, weights=weights, axis=axis)
 
     # Fast and numerically precise:
@@ -191,7 +227,7 @@ def wtmn(values, weights, axis=0, cons=False):
         std_unbias = std / np.sqrt(len(weights))
     else:
         std_unbias = std
-        
+
     return (mn, std_unbias)
 
 
@@ -308,3 +344,20 @@ def binning_tab(data, nbox=50, force=False, rel_err=0.01):
     l_e_dphi = np.array(l_e_dphi).T
     return l_wl, l_vis2, l_e_vis2, l_cp, l_e_cp, l_dvis, l_dphi, l_e_dvis, l_e_dphi
 
+
+def computeBinaryRatio(param, wl):
+    """ Compute binary ratio at the given wavelength according
+    a total luminosity ratio of param['L_ratio_star'] (L_WR = X*L_OB).
+    """
+    T_Wr = param["T_WR"]
+    T_ob = param["T_OB"]
+    sig_Teff = T_Wr ** 4 / T_ob ** 4
+
+    L_ratio = param["L_WR/O"]
+
+    f1_0 = planck_law(T_ob, wl)
+    f2_0 = planck_law(T_Wr, wl) * (L_ratio / sig_Teff)
+    ftot_0 = f1_0 + f2_0
+    p_OB = f1_0 / ftot_0
+    p_WR = f2_0 / ftot_0
+    return p_OB, p_WR
