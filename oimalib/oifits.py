@@ -285,6 +285,7 @@ def oifits2dic(filename, rad=False):
             temp["data"] = data
             tab_data["Vis_phi; " + ins] = temp
 
+    fitsHandler.close()
     tab_data["info"]["ncp"] = ncp_master
     return tab_data
 
