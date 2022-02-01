@@ -418,7 +418,7 @@ def getBinaryPos(mjd, param, mjd0=57590, revol=1, v=5, au=False, anim=False, dis
 
         plt.subplot(1, 2, 2)
         plt.plot(phase, r, linewidth=1, linestyle='-', zorder=2,
-                 label='$\phi_{prod}$ = %2.1f %% (%2.1f d)' % (tab['f_prod'], tab['d_prod']))
+                 label=r'$\phi_{prod}$ = %2.1f %% (%2.1f d)' % (tab['f_prod'], tab['d_prod']))
         plt.plot(pphase, r_act, 'o', color='#008b8b', zorder=3,
                  label='r = %2.2f %s' % (r_act, unit))
         if not nodust:
