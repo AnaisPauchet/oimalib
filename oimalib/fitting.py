@@ -70,6 +70,8 @@ def select_model(name):
         model = complex_models.get_full_visibility
     elif name == "yso_line":
         model = complex_models.visLazareff_line
+    elif name == "pwhl":
+        model = complex_models.visPwhl
     else:
         model = None
     return model
@@ -101,7 +103,7 @@ def check_params_model(param):
         flor = param["flor"]
         incl = param["incl"]
         pa = param["pa"]
-        
+
         fs = param["fs"]
         fc = param["fc"]
         fh = 1 - fs - fc
@@ -137,7 +139,7 @@ def check_params_model(param):
         flor = param["flor"]
         incl = param["incl"]
         pa = param["pa"]
-        
+
         fh = param["fh"]
         fc = param["fc"]
         fs = 1 - fh - fc
@@ -333,7 +335,7 @@ def model_standard_fast(d, param):
         nbl = len(data.u)
         ncp = len(data.cp)
         model_target = select_model(param["model"])
-        mod_cvis = []  # np.zeros_like(data.vis2, dtype=complex)
+        mod_cvis = [] 
         for i in range(nbl):
             vis2 = data.vis2[i]
             if len(vis2[~np.isnan(vis2)]) != 0:
@@ -906,6 +908,7 @@ def smartfit(
     scale_err=1,
     verbose=False,
     tobefit=["CP", "V2"],
+    fast=True,
 ):
     """
     Perform the fit the observable in `tobefit` contained in data list (or class).
@@ -944,15 +947,18 @@ def smartfit(
         except Exception:
             pass
 
-    M = model_standard_fast
-
-    obs = np.concatenate([oimalib.format_obs(x) for x in data])
-    save_obs = obs.copy()
-    obs = []
-    for o in save_obs:
-        if o[1] in tobefit:
-            obs.append(o)
-    obs = np.array(obs)
+    if fast:
+        M = model_standard_fast
+        obs = np.concatenate([oimalib.format_obs(x) for x in data])
+        save_obs = obs.copy()
+        obs = []
+        for o in save_obs:
+            if o[1] in tobefit:
+                obs.append(o)
+        obs = np.array(obs)
+    else:
+        M = model_standard
+        obs = np.array(data, dtype=object)
 
     errs = [o[-1] for o in obs]
     if normalizeErrors:

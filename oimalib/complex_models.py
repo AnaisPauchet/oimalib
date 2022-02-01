@@ -12,7 +12,7 @@ from termcolor import cprint
 
 from .binary import getBinaryPos, kepler_solve
 from .fourier import shiftFourier
-from .tools import mas2rad, planck_law, rad2mas
+from .tools import mas2rad, planck_law, rad2mas, computeBinaryRatio
 
 
 def _elong_gauss_disk(u, v, a=1.0, cosi=1.0, pa=0.0):
@@ -535,7 +535,7 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
     kr = 10.0 ** (lk)
     ar = 10 ** la / (np.sqrt(1 + kr ** 2))
     ak = ar * kr
-    
+
     ar_rad = mas2rad(ar)
     semi_majorAxis = ar_rad
 
@@ -1027,7 +1027,7 @@ def _compute_param_elts(
     if display:
         tmp = np.linspace(0, 2 * np.pi, 300)
         xrnuc, yrnuc = rnuc * np.cos(tmp), rnuc * np.sin(tmp)
-        plt.figure(figsize=(9, 8))
+        plt.figure(figsize=(5, 5))
         plt.plot(
             px0[limit_speed_cond],
             py0[limit_speed_cond],
@@ -1064,6 +1064,8 @@ def _compute_param_elts(
         plt.legend(fontsize=7, loc=1)
         plt.axis(np.array([-lim, lim, lim, -lim]) * 2.0)
         plt.gca().set_aspect("equal", adjustable="box")
+        plt.xlabel("RA [mas]")
+        plt.ylabel("DEC [mas]")
         plt.tight_layout()
         plt.show(block=False)
     return (
@@ -1080,7 +1082,7 @@ def _compute_param_elts(
 def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
     """ Compute only once the elements parameters fo the spiral. """
     # Pinwheel parameters
-    rounds = float(param["Nturns"])
+    rounds = float(param["rounds"])
 
     # Convert appropriate units
     alpha = np.deg2rad(param["opening_angle"])
@@ -1092,14 +1094,14 @@ def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
     incl = np.deg2rad(float(param["incl"]))
     angleSky = np.deg2rad(float(param["angleSky"]))
 
-    totalSize = param["Nturns"] * step
+    totalSize = param["rounds"] * step
 
     # rarely changed
     power = 1.0  # float(param["power"])
     minThick = 0.0  # float(param["minThick"])
 
     # Set opening angle
-    maxThick = 2 * np.tan(alpha / 2.0) * (param["Nturns"] * step)
+    maxThick = 2 * np.tan(alpha / 2.0) * (rounds * step)
 
     # Ring type of the pinwheel
     types = param["compo"]  # "r2"
@@ -1107,7 +1109,7 @@ def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
     # fillFactor = param["fillFactor"]
     thick = np.mean((minThick + maxThick)) / 2.0
 
-    N = int(param["nelts"] * param["Nturns"])
+    N = int(param["nelts"] * rounds)
 
     # Full angular coordinates unaffected by the ecc.
     theta = np.linspace(0, rounds * 2 * np.pi, N)
@@ -1170,7 +1172,7 @@ def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
 
     thick = minThick + ruse / (max(r) + (max(r) == 0)) * maxThick
 
-    proj = param["proj"]
+    proj = True  # param["proj"]
     tab_orient = _compute_param_elts(
         ruse,
         tetuse,
@@ -1228,7 +1230,7 @@ def sed_pwhl(wl, mjd, param, verbose=True, display=True):
         spectrumi = param["f_scale_pwhl"] * planck_law(l_Tr, xx)
         spec.append(spectrumi)
 
-    wl_sed = np.logspace(-8, -3.5, 1000)
+    wl_sed = np.logspace(-7, -3.5, 1000)
     spec_all, spec_all1, spec_all2 = [], [], []
     for i in range(len(l_Tr)):
         spectrum_r = param["f_scale_pwhl"] * planck_law(l_Tr[i], wl_sed)
@@ -1293,7 +1295,7 @@ def sed_pwhl(wl, mjd, param, verbose=True, display=True):
     )
 
 
-def visPinwheel(
+def visSpiralTemp(
     Utable,
     Vtable,
     Lambda,
@@ -1373,7 +1375,7 @@ def visPinwheel(
                 }
             )
 
-    if param["q"] == 1.0:
+    if (param["q"] == 1.0) or (spec is None):
         spectrumi = list(np.linspace(1, 0, N2))
     else:
         dmas = rad2mas(np.sqrt(tab_faceon[2] ** 2 + tab_faceon[3] ** 2))
@@ -1383,9 +1385,7 @@ def visPinwheel(
 
         if verbose:
             print("Temperature law: r0 = %2.2f mas, T0 = %i K" % (dmas[0], Tr[0]))
-        spectrumi = spec  # param["f_scale_pwhl"] * Planck_law(Tr, Lambda)
-        # spectrumi[dmas >= np.cos(alpha/2.)*rad2mas(step)
-        #           ] /= param["gap_factor"]
+        spectrumi = spec
 
     C_centered = visMultipleResolved(
         Utable, Vtable, Lambda, typei, spectrumi, list_param
@@ -1417,7 +1417,7 @@ def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
         elif typei[i] == "star":
             Ci = visPointSource(Utable, Vtable, Lambda, list_param[i])
         elif typei[i] == "pwhl":
-            Ci = visPinwheel(Utable, Vtable, Lambda, list_param[i])
+            Ci = visSpiralTemp(Utable, Vtable, Lambda, list_param[i])
         else:
             print("Model not yet in VisModels")
         spec2 = spec[i]
@@ -1431,3 +1431,277 @@ def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
         print("Error : flux = 0")
         vis = None
     return vis[0]
+
+
+def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
+    """
+    Compute a multi-component model of a pinwheel nebulae with:
+    - The pinwheel: composed of a multiple rings, uniform disk or gaussian (`compo`). The shape of the
+    pinwheel is given by the `step`, the `opening_angle`, etc. The fluxes are computed
+    using a blackbodies fallowing a power law temperature (`T_sub`, `r_nuc`, and `q`),
+    - The binary star: computed using binary_integrator package (stellar parameters as `M1`, `M2`, `e`, and
+    `dpc` are required). If not, specify a separation (`s_bin`) to compute your own binary position.
+    The binary relative flux (set by `contrib_star` in [%]) is computed @ 1 µm using
+    blackbodies `T_WR`, `T_OB` and the SED of the pinwheel,
+    - The halo (Optionnal): The pinwheel appeared to be surrounded by a fully
+    resolved environment (similar to YSO halo properties, see Lazareff et al.
+    2017). This contribution is set by `contrib_halo` [%], where the flux is
+    taken from the spiral contribution. 
+    """
+
+    mjd = param["mjd"]  # 50000.0
+    phase = (mjd - param["mjd0"]) / param["P"] % 1
+    if verbose:
+        s = "Model pinwheel S = %2.1f mas, phase = %1.2f @ %2.2f µm:" % (
+            param["step"],
+            phase,
+            Lambda * 1e6,
+        )
+        cprint(s, "cyan")
+        cprint("-" * len(s), "cyan")
+
+    angle_0 = param["angle_0"]
+    angle_0_bis = (angle_0 - 0) * -1
+
+    # -= 90  # Switch reference to the NORTH
+    param["angle_0"] = angle_0_bis
+
+    param["incl"] = param["incl"] + 180
+    # Binary point source
+    # --------------------------------------------------------------------------
+
+    if ("M1" in param.keys()) & ("M2" in param.keys()):
+        tab = getBinaryPos(
+            mjd, param, mjd0=param["mjd0"], revol=1, v=2, au=True, display=expert_plot
+        )
+        param["a"] = tab["a"]
+        param_star_WR = {
+            "x0": mas2rad(tab["star1"]["x"]),
+            "y0": mas2rad(tab["star1"]["y"]),
+        }
+        param_star_O = {
+            "x0": mas2rad(tab["star2"]["x"]),
+            "y0": mas2rad(tab["star2"]["y"]),
+        }
+    else:
+        param["a"] = param["sep_bin"] * param["dpc"]
+        param_star_WR = {
+            "x0": 0,
+            "y0": 0,
+        }
+        param_star_O = {
+            "x0": 0,
+            "y0": 0,
+        }
+
+    # Flux contribution of the different components (binary star, pinwheel and
+    # resolved environment)
+    # --------------------------------------------------------------------------
+    wl_0 = 1e-6  # Wavelength 0 for the ratio
+
+    # Contribution of each star in the binary system
+    p_OB, p_WR = computeBinaryRatio(param, Lambda)
+
+    p_OB = np.mean(p_OB)
+    p_WR = np.mean(p_WR)
+    if verbose:
+        print(
+            "Binary relative fluxes: WR = %2.2f %%, OB = %2.2f %%"
+            % (p_WR * 100, p_OB * 100.0)
+        )
+
+    contrib_star = param["contrib_star"] / 100.0
+
+    if type(Lambda) is float:
+        wl = np.array([Lambda])
+    else:
+        wl = Lambda
+
+    wl_sed = np.logspace(-7, -3.5, 1000)
+    if param["r_nuc"] != 0:
+        input_wl = [wl_0] + list(wl)
+        tab_dust_fluxes = sed_pwhl(input_wl, mjd, param, display=False, verbose=False)
+        full_sed = tab_dust_fluxes[1]
+        wl_sed = tab_dust_fluxes[2]
+        f_pinwheel_wl0 = tab_dust_fluxes[6]
+
+        f_binary_wl0 = p_OB * planck_law(param["T_OB"], wl_0) + p_WR * planck_law(
+            param["T_WR"], wl_0
+        )
+
+        f_binary_wl = p_OB * planck_law(
+            param["T_OB"], wl_sed / 1e6
+        ) + p_WR * planck_law(param["T_WR"], wl_sed / 1e6)
+
+        f_binary_obs = p_OB * planck_law(param["T_OB"], wl) + p_WR * planck_law(
+            param["T_WR"], wl
+        )
+
+    if param["r_nuc"] != 0:
+        sed_pwhl_wl = tab_dust_fluxes[0][1, :]
+        P_dust = np.sum(sed_pwhl_wl)
+        n_elts = len(sed_pwhl_wl)
+
+        if contrib_star != 1:
+            scale_star = (f_pinwheel_wl0 / f_binary_wl0) * (
+                contrib_star / (1.0 - contrib_star)
+            )
+        else:
+            scale_star = 1e6
+    else:
+        P_dust = 1 - param["contrib_star"] / 100.0
+        n_elts = param["nelts"]
+        sed_pwhl_wl = None
+
+    # wl_0_m = wl_0*1e6
+    wl_m = wl * 1e6
+    # l_wl0 = [wl_0_m]*n_elts
+    l_wl = [wl_m] * n_elts
+
+    if param["r_nuc"] != 0:
+        binary_sed = scale_star * f_binary_wl
+        P_star = scale_star * f_binary_obs
+        dmas = tab_dust_fluxes[7]
+        Tr = tab_dust_fluxes[8]
+        Twien = tab_dust_fluxes[3]
+    else:
+        P_star = param["contrib_star"] / 100.0
+
+    if (expert_plot) & (param["r_nuc"] != 0):
+        plt.figure()
+        plt.plot(dmas, Tr, label="r0 = %2.1f mas, T0 = %2.1f K" % (dmas[0], Tr[0]))
+        plt.grid(alpha=0.2)
+        plt.xlabel("Distance [mas]")
+        plt.ylabel("Temperature [K]")
+        plt.legend()
+        plt.tight_layout()
+
+        plt.figure()
+        plt.loglog(
+            wl_sed,
+            full_sed,
+            color="#af6d04",
+            lw=3,
+            alpha=0.8,
+            label=r"Pinwheel (T$_{wien}$ = %i K)" % Twien,
+        )
+        plt.loglog(
+            wl_sed,
+            binary_sed,
+            color="#008080",
+            lw=3,
+            alpha=0.8,
+            label="Binary",
+            zorder=3,
+        )
+        plt.loglog(l_wl, sed_pwhl_wl, ".", ms=3, color="#222223", zorder=10)
+        plt.loglog(wl_sed, tab_dust_fluxes[4], "-", color="grey")
+        try:
+            plt.loglog(wl_sed, tab_dust_fluxes[5], "-", color="lightgrey")
+        except ValueError:
+            pass
+        plt.ylim(binary_sed.max() / 1e6, binary_sed.max() * 1e2)
+        plt.plot(-1, -1, "-", color="grey", lw=3, label="Illuminated dust")  # legend
+        plt.plot(-1, -1, "-", color="lightgrey", lw=3, label="Shadowed dust")  # legend
+        plt.loglog(
+            wl_m,
+            P_dust,
+            "H",
+            color="#71490a",
+            zorder=5,
+            ms=5,
+            markeredgecolor="k",
+            markeredgewidth=0.5,
+            label=r"$\Sigma F_{%2.1fµm}$ = %2.1f Jy" % (wl_m, P_dust),
+        )
+        plt.loglog(
+            wl_m,
+            P_star,
+            "H",
+            color="#009ace",
+            zorder=5,
+            ms=5,
+            markeredgecolor="k",
+            markeredgewidth=0.5,
+            label=r"$\Sigma F_{*, %2.1fµm}$ = %2.1f Jy" % (wl_m, P_star),
+        )
+        plt.xlabel("Wavelength [µm]")
+        plt.ylabel("SED [Jy]")
+        plt.legend(loc=1, fontsize=8)
+        plt.grid(alpha=0.1, which="both")
+        plt.tight_layout()
+
+    try:
+        wl_peak = wl_sed[np.argmax(full_sed)]
+        sed_save = {
+            "wl": wl_sed,
+            "dust": full_sed,
+            "star": binary_sed,
+            "Fdust": P_dust,
+            "Fstar": P_star,
+            "wl_obs": wl_m,
+            "Twien": Twien,
+            "wl_peak": wl_peak,
+        }
+    except UnboundLocalError:
+        sed_save = None
+
+    if contrib_star == 1:
+        P_star = 1
+        P_dust = 0
+
+    P_tot = P_star + P_dust
+
+    # # Different contributions
+    Fstar = P_star / P_tot
+    Fpwhl = P_dust / P_tot
+
+    # Gaussian disk background
+    # --------------------------------------------------------------------------
+    if "contrib_halo" in list(param.keys()):
+        Fshell = param["contrib_halo"] / 100.0
+        Fpwhl -= Fshell
+
+    if verbose:
+        print(
+            "Relative component fluxes: Fstar = %2.3f %%; Fpwhl = %2.3f %%, Fenv = %2.3f %%"
+            % (100 * Fstar, 100 * Fpwhl, 100 * Fshell)
+        )
+
+    # # Visibility
+    # --------------------------------------------------------------------------
+    param["x0"] = rad2mas(param_star_O["x0"]) * (2 / 3.0)
+    param["y0"] = rad2mas(param_star_O["y0"]) * (2 / 3.0)
+
+    Vpwhl = visSpiralTemp(
+        Utable,
+        Vtable,
+        wl,
+        mjd,
+        param,
+        spec=sed_pwhl_wl,
+        verbose=verbose,
+        display=expert_plot,
+    )
+
+    vis_OB = p_OB * Fstar * visPointSource(Utable, Vtable, wl, param_star_O)
+    vis_WR = p_WR * Fstar * visPointSource(Utable, Vtable, wl, param_star_WR)
+
+    vis = Fpwhl * Vpwhl + vis_OB + vis_WR
+
+    # vis = (p_OB * Fstar * visPointSource(Utable, Vtable, wl, param_star_O)
+    #     + p_WR * Fstar * visPointSource(Utable, Vtable, wl, param_star_WR)
+    #     + Fpwhl
+    #     * visPinwheel(
+    #         Utable,
+    #         Vtable,
+    #         wl,
+    #         mjd,
+    #         param,
+    #         spec=sed_pwhl_wl,
+    #         verbose=verbose,
+    #         display=display,
+    #     ))
+    #     + Fshell * visGaussianDisk(Utable, Vtable, wl, param)
+
+    return vis  # np.array(vis), sed_save

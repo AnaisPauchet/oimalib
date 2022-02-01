@@ -262,9 +262,8 @@ def getBinaryPos(mjd, param, mjd0=57590, revol=1, v=5, au=False, anim=False, dis
 
     P2 = P * 24 * 3600.
     a = ((G * (M_star1 + M_star2) * P2**2)/(4*np.pi**2))**(1/3.)
-
-    a_au = a/au
-
+    
+    a_au = a/cs.au.cgs.value
     fact = diff/P
 
     pphase = -fact % 1  # + 0.5
@@ -297,8 +296,9 @@ def getBinaryPos(mjd, param, mjd0=57590, revol=1, v=5, au=False, anim=False, dis
 
     incl, angleSky, phi = np.deg2rad(i), np.deg2rad(angleSky), np.deg2rad(-phi)
 
-    X1_b, Y1_b = -s1.x/au/dpc, s1.y/au/dpc
-    X2_b, Y2_b = -s2.x/au/dpc, s2.y/au/dpc
+    au_cgs = cs.au.cgs.value
+    X1_b, Y1_b = -s1.x/au_cgs/dpc, s1.y/au_cgs/dpc
+    X2_b, Y2_b = -s2.x/au_cgs/dpc, s2.y/au_cgs/dpc
 
     l_theta = []
     for i in range(len(X1_b)):
@@ -324,7 +324,7 @@ def getBinaryPos(mjd, param, mjd0=57590, revol=1, v=5, au=False, anim=False, dis
 
     phase = s1.t/b.P
     r = ((s1.x[:]**2 + s1.y[:]**2)**0.5 +
-         (s2.x[:]**2 + s2.y[:]**2)**0.5)/au/dpc
+         (s2.x[:]**2 + s2.y[:]**2)**0.5)/au_cgs/dpc
 
     fx1 = interp1d(phase, X1)
     fy1 = interp1d(phase, Y1)
