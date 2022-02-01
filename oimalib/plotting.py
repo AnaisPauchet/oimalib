@@ -385,9 +385,7 @@ def plot_oidata(
             ]
         )
         cb = plt.colorbar(sc, cax=cax, orientation="horizontal")
-        # cb.set_label(r"$\lambda$ [µm]")
         cb.ax.set_title(r"$\lambda$ [µm]", fontsize=9)
-    # ax1.legend(fontsize=7)
     ax1.set_ylabel(ylabel, fontsize=12)
     ax1.grid(alpha=0.3)
 
@@ -694,7 +692,7 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
         color="#e19751",
         zorder=10,
         marker="^",
-        label="MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
+        label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
         ax=axd["vis2"],
     )
     ax.errorbar(
@@ -714,8 +712,7 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
     axd["vis2"].set_ylabel("V$^{2}$")
     axd["vis2"].set_xlabel("")
-    # axd["vis2"].xaxis.set_ticklabels([])
-    axd["res_vis2"].set_ylabel("Residuals [$\sigma$]")
+    axd["res_vis2"].set_ylabel(r"Residuals [$\sigma$]")
     axd["res_vis2"].axhspan(-1, 1, alpha=0.6, color="#418fde")
     axd["res_vis2"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
     axd["res_vis2"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
@@ -808,7 +805,7 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
         color="#e19751",
         zorder=10,
         marker="^",
-        label="MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
+        label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
         ax=axd["cp"],
     )
     ax.errorbar(
@@ -826,10 +823,9 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     )
     axd["res_cp"].sharex(axd["cp"])
     plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
-    axd["cp"].set_ylabel("Closure phase $\phi$ [deg]")
+    axd["cp"].set_ylabel(r"Closure phase $\phi$ [deg]")
     axd["cp"].set_xlabel("")
-    # axd["vis2"].xaxis.set_ticklabels([])
-    axd["res_cp"].set_ylabel("Residuals [$\sigma$]")
+    axd["res_cp"].set_ylabel(r"Residuals [$\sigma$]")
     axd["res_cp"].axhspan(-1, 1, alpha=0.6, color="#418fde")
     axd["res_cp"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
     axd["res_cp"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
@@ -906,19 +902,17 @@ def plot_complex_model(
     ax_vis = [-umax, umax, -umax, umax]
     modelname = grid.name
 
-    # fig = plt.figure(figsize=(14, 5))
     fig, axs = plt.subplots(1, 3, figsize=(14, 5))
-    # fig, ax1 = plt.subplot(1, 3, 1)
     axs[0].set_title(
-        'Model "%s" ($\lambda$ = %2.2f $\mu$m)' % (modelname, wl_model * 1e6)
+        r'Model "%s" ($\lambda$ = %2.2f $\mu$m)' % (modelname, wl_model * 1e6)
     )
     axs[0].imshow(
         im_model, norm=PowerNorm(p), origin="lower", extent=extent_im, cmap="afmhot"
     )
-    axs[0].set_xlabel("$\Delta$RA [%s]" % (unit_im))
-    axs[0].set_ylabel("$\Delta$DEC [%s]" % (unit_im))
+    axs[0].set_xlabel(r"$\Delta$RA [%s]" % (unit_im))
+    axs[0].set_ylabel(r"$\Delta$DEC [%s]" % (unit_im))
 
-    axs[1].set_title("Squared visibilities (V$^2$)")
+    axs[1].set_title(r"Squared visibilities (V$^2$)")
     axs[1].imshow(
         im_amp ** 2,
         norm=PowerNorm(1),
@@ -933,11 +927,11 @@ def plot_complex_model(
         _plot_uvdata_coord(data, ax=axs[1], rotation=rotation)
 
     if unit_vis == "lambda":
-        plt.xlabel("U [M$\lambda$]")
-        plt.ylabel("V [M$\lambda$]")
+        plt.xlabel(r"U [M$\lambda$]")
+        plt.ylabel(r"V [M$\lambda$]")
     else:
-        plt.xlabel("U [arcsec$^{-1}$]")
-        plt.ylabel("V [arcsec$^{-1}$]")
+        plt.xlabel(r"U [arcsec$^{-1}$]")
+        plt.ylabel(r"V [arcsec$^{-1}$]")
 
     # plt.subplot(1, 3, 3)
     axs[2].set_title("Phase [rad]")
@@ -951,11 +945,11 @@ def plot_complex_model(
     axs[2].plot(0, 0, "r+")
 
     if unit_vis == "lambda":
-        axs[2].set_xlabel("U [M$\lambda$]")
-        axs[2].set_ylabel("V [M$\lambda$]")
+        axs[2].set_xlabel(r"U [M$\lambda$]")
+        axs[2].set_ylabel(r"V [M$\lambda$]")
     else:
-        axs[2].set_xlabel("U [arcsec$^{-1}$]")
-        axs[2].set_ylabel("V [arcsec$^{-1}$]")
+        axs[2].set_xlabel(r"U [arcsec$^{-1}$]")
+        axs[2].set_ylabel(r"V [arcsec$^{-1}$]")
     axs[2].axis(ax_vis)
     plt.tight_layout()
     plt.show(block=False)
@@ -1173,7 +1167,6 @@ def plot_image_model(
     plt.ylabel(r"Relative DEC [mas]")
     plt.title("Model image", fontsize=12, color="grey", weight="bold")
 
-    # plt.ylabel(r'$\delta$ [mas]')
     plt.subplot(1, 4, 4)
     plt.imshow(
         ima_conv_orient,
