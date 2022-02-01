@@ -64,7 +64,7 @@ dic_color = {
 
 err_pts_style = {
     "linestyle": "None",
-    "capsize": 1,  # 'ecolor': '#9e978e',
+    "capsize": 1,
     "marker": ".",
     "elinewidth": 0.5,
     "alpha": 1,
@@ -120,41 +120,14 @@ def check_closed_triplet(data, i=0):
     return fig
 
 
-def _flat_v2_data(data, use_flag=True):
-    """ Flatten data V2 and apply flag (for plot_residuals()). """
-    npts = len(data.freq_vis2.flatten())
-    flag_vis2 = [True] * npts
-    if use_flag:
-        flag_vis2 = np.invert(data.flag_vis2.flatten())
-
-    freq_vis2 = data.freq_vis2.flatten()[flag_vis2]
-    vis2 = data.vis2.flatten()[flag_vis2]
-    e_vis2 = data.e_vis2.flatten()[flag_vis2]
-    wl = np.array([data.wl for i in range(len(data.vis2))]).flatten()[flag_vis2]
-    return freq_vis2, vis2, e_vis2, wl, flag_vis2
-
-
-def _flat_cp_data(data, use_flag=True):
-    """ Flatten data CP and apply flag (for plot_residuals()). """
-    npts = len(data.freq_cp.flatten())
-    flag_cp = [True] * npts
-    if use_flag:
-        flag_cp = np.invert(data.flag_cp.flatten())
-    freq_cp = data.freq_cp.flatten()[flag_cp]
-    cp = data.cp.flatten()[flag_cp]
-    e_cp = data.e_cp.flatten()[flag_cp]
-    wl = np.array([data.wl for i in range(len(data.cp))]).flatten()[flag_cp]
-    return freq_cp, cp, e_cp, wl, flag_cp
-
-
-def plot_tellu(label=None, plot_ind=False, val=5000):
+def plot_tellu(label=None, plot_ind=False, val=5000, lw=0.5):
     file_tellu = pkg_resources.resource_stream(
         "oimalib", "internal_data/Telluric_lines.txt"
     )
     tellu = np.loadtxt(file_tellu, skiprows=1)
-    plt.axvline(np.nan, lw=0.5, c="gray", alpha=0.5, label=label)
+    plt.axvline(np.nan, lw=lw, c="gray", alpha=0.5, label=label)
     for i in range(len(tellu)):
-        plt.axvline(tellu[i], lw=0.5, c="crimson", ls="--", alpha=0.5)
+        plt.axvline(tellu[i], lw=lw, c="crimson", ls="--", alpha=0.5)
         if plot_ind:
             plt.text(tellu[i], val, i, fontsize=7, c="crimson")
 
@@ -590,197 +563,6 @@ def plot_uv(tab, bmax=150, rotation=0):
     return fig
 
 
-# def plot_residuals(
-#     data,
-#     mod_v2,
-#     mod_cp,
-#     use_flag=True,
-#     modelname="model",
-#     d_freedom=0,
-#     cp_max=None,
-#     v2_min=None,
-#     v2_max=1.1,
-#     mega=False,
-#     color_wl=False,
-#     ifig=None,
-# ):
-#     """ Plot the data with the model (param) and corresponding residuals.
-
-#     Parameters:
-#     -----------
-#     `data`: {class}
-#         Data from load() function,\n
-#     `param` {dict}:
-#         Dictionnary containing the model parameters,\n
-#     `use_flag`: {boolean}
-#         If True, use flag from the original oifits file,\n
-#     `d_freedom` {int}:
-#         Degree of freedom used during the model fitting.\n
-#     """
-#     data_v2 = _flat_v2_data(data, use_flag=use_flag)
-#     data_cp = _flat_cp_data(data, use_flag=use_flag)
-
-#     freq_vis2, vis2, e_vis2, wl_v2, cond_v2 = data_v2
-#     freq_cp, cp, e_cp, wl_cp, cond_cp = data_cp
-
-#     if mega:
-#         freq_vis2 = freq_vis2 * (1.0 / mas2rad(1000)) / 1e6
-#         freq_cp = freq_cp * (1.0 / mas2rad(1000)) / 1e6
-
-#     if (mod_v2 is None) or (mod_cp is None):
-#         return None
-
-#     mod_v2 = mod_v2.flatten()[cond_v2]
-#     mod_cp = mod_cp.flatten()[cond_cp]
-
-#     res_vis2 = (mod_v2 - vis2) / e_vis2
-#     res_cp = (mod_cp - cp) / e_cp
-
-#     chi2_cp = np.sum(((cp - mod_cp) ** 2 / (e_cp) ** 2)) / (len(e_cp) - (d_freedom - 1))
-#     chi2_vis2 = np.sum(((vis2 - mod_v2) ** 2 / (e_vis2) ** 2)) / (
-#         len(e_vis2) - (d_freedom - 1)
-#     )
-
-#     ms = 5
-#     fig = plt.figure(ifig, constrained_layout=True, figsize=(15, 6))
-#     axd = fig.subplot_mosaic(
-#         [["vis", "cp"], ["res_vis2", "res_cp"]],
-#         gridspec_kw={"width_ratios": [2, 2], "height_ratios": [3, 1]},
-#     )
-
-#     axd["res_vis2"].sharex(axd["vis"])
-#     axd["res_cp"].sharex(axd["cp"])
-
-#     if color_wl:
-#         sc = axd["vis"].scatter(
-#             freq_vis2, vis2, c=wl_v2 * 1e6, s=7, cmap="turbo", zorder=20
-#         )
-#         axd["vis"].errorbar(
-#             freq_vis2,
-#             vis2,
-#             yerr=e_vis2,
-#             marker="None",
-#             linestyle="None",
-#             elinewidth=1,
-#             color="grey",
-#             capsize=1,
-#         )
-#         cax = fig.add_axes(
-#             [
-#                 axd["vis"].get_position().x1 * 0.93,
-#                 axd["vis"].get_position().y1 * 0.8,
-#                 0.01,
-#                 axd["vis"].get_position().height * 0.4,
-#             ]
-#         )
-#         cb = plt.colorbar(sc, cax=cax)
-
-#         cb.set_label("$\lambda$ [µm]", fontsize=8)
-#     else:
-#         axd["vis"].errorbar(
-#             freq_vis2, vis2, yerr=e_vis2, **err_pts_style, color="#3d84a8"
-#         )
-#     axd["vis"].plot(
-#         freq_vis2,
-#         mod_v2,
-#         "^",
-#         color="#f6416c",
-#         zorder=100,
-#         ms=ms,
-#         label="%s ($\chi^2_r=%2.2f$)" % (modelname, chi2_vis2),
-#         alpha=0.7,
-#     )
-#     axd["vis"].legend()
-#     if v2_min is not None:
-#         axd["vis"].set_ylim(v2_min, v2_max)
-#     axd["vis"].grid(alpha=0.2)
-#     axd["vis"].set_ylabel(r"V$^2$")
-
-#     axd["res_vis2"].plot(freq_vis2, res_vis2, ".", color="#3d84a8")
-#     axd["res_vis2"].axhspan(-1, 1, alpha=0.2, color="#418fde")
-#     axd["res_vis2"].axhspan(-2, 2, alpha=0.2, color="#8bb8e8")
-#     axd["res_vis2"].axhspan(-3, 3, alpha=0.2, color="#c8d8eb")
-#     res_mas = 5
-#     try:
-#         if res_vis2.max() > 5:
-#             res_mas = res_vis2.max()
-#     except ValueError:
-#         axd["vis"].text(
-#             0.5,
-#             0.5,
-#             "ALL FLAGGED",
-#             color="r",
-#             ha="center",
-#             va="center",
-#             fontweight="bold",
-#             transform=axd["vis"].transAxes,
-#             fontsize=20,
-#         )
-
-#     axd["res_vis2"].set_ylim(-res_mas, res_mas)
-#     axd["res_vis2"].set_ylabel("Residual [$\sigma$]")
-#     axd["res_vis2"].set_xlabel("Sp. Freq. [arcsec$^{-1}$]")
-
-#     if color_wl:
-#         sc = axd["cp"].scatter(freq_cp, cp, c=wl_cp * 1e6, s=7, cmap="turbo", zorder=20)
-#         axd["cp"].errorbar(
-#             freq_cp,
-#             cp,
-#             yerr=e_cp,
-#             marker="None",
-#             linestyle="None",
-#             elinewidth=1,
-#             color="grey",
-#             capsize=1,
-#         )
-#     else:
-#         axd["cp"].errorbar(freq_cp, cp, yerr=e_cp, **err_pts_style, color="#289045")
-
-#     axd["cp"].plot(
-#         freq_cp,
-#         mod_cp,
-#         "x",
-#         color="#f6416c",
-#         zorder=100,
-#         ms=ms,
-#         label="%s ($\chi^2_r=%2.1f$)" % (modelname, chi2_cp),
-#         alpha=0.7,
-#     )
-
-#     if cp_max is not None:
-#         axd["cp"].set_ylim(-cp_max, cp_max)
-#     axd["cp"].grid(alpha=0.2)
-#     axd["cp"].set_ylabel("Closure phases [deg]")
-#     axd["cp"].legend()
-
-#     axd["res_cp"].plot(freq_cp, res_cp, ".", color="#1e7846")
-#     axd["res_cp"].axhspan(-1, 1, alpha=0.3, color="#28a16c")  # f5c893
-#     axd["res_cp"].axhspan(-2, 2, alpha=0.2, color="#28a16c")
-#     axd["res_cp"].axhspan(-3, 3, alpha=0.1, color="#28a16c")
-#     try:
-#         if res_cp.max() > 5:
-#             res_mas = res_cp.max()
-#         else:
-#             res_mas = 5
-#     except ValueError:
-#         axd["cp"].text(
-#             0.5,
-#             0.5,
-#             "ALL FLAGGED",
-#             color="r",
-#             ha="center",
-#             va="center",
-#             fontweight="bold",
-#             transform=axd["cp"].transAxes,
-#             fontsize=20,
-#         )
-#         pass
-#     axd["res_cp"].set_ylim(-res_mas, res_mas)
-#     axd["res_cp"].set_ylabel("Residual [$\sigma$]")
-#     axd["res_cp"].set_xlabel("Sp. Freq. [arcsec$^{-1}$]")
-#     return fig
-
-
 def plot_residuals(
     data, param, fitOnly=None, hue=None, use_flag=True, save_dir=None, name=""
 ):
@@ -1192,7 +974,9 @@ def plot_image_model(
     cont=False,
     p=0.5,
     obs=None,
+    apod=False,
     corono=False,
+    expert_plot=False,
 ):
     """
     Make the image of the `multiCompoPwhl` function.
@@ -1255,7 +1039,10 @@ def plot_image_model(
         cprint(log, "cyan")
         return None
 
-    vis = model_target(Utable, Vtable, wl, param)
+    if param["model"] == "pwhl":
+        vis = model_target(Utable, Vtable, wl, param, expert_plot=expert_plot)
+    else:
+        vis = model_target(Utable, Vtable, wl, param)
 
     param_psf = {"fwhm": rad2mas(wl / (2 * base_max)), "x0": 0, "y0": 0}
 
@@ -1275,10 +1062,13 @@ def plot_image_model(
         y = np.hamming(2 * npts)[npts:]
 
     f = interp1d(x, y)
-    img_apod = f(freq_map.flat).reshape(freq_map.shape)
+    img_apod = 1
+
+    if apod:
+        img_apod = f(freq_map.flat).reshape(freq_map.shape)
 
     # Reshape because all visibililty are calculated in 1D array (faster computing)
-    im_vis = vis.reshape(npts, -1)  # * img_apod
+    im_vis = vis.reshape(npts, -1) * img_apod
     fftVis = np.fft.ifft2(im_vis)
 
     amp = abs(vis)
@@ -1290,7 +1080,7 @@ def plot_image_model(
 
     # Create an image
     im_amp = amp.reshape(npts, -1)
-    im_phi = phi.reshape(npts, -1)
+    im_phi = np.rad2deg(phi.reshape(npts, -1))
 
     image = np.fft.fftshift(abs(fftVis))
     maxX = rad2mas(wl * npts / bmax) / 2.0
@@ -1342,13 +1132,24 @@ def plot_image_model(
     plt.title("Amplitude visibility", fontsize=12, color="grey", weight="bold")
     plt.subplot(1, 4, 2)
     plt.imshow(im_phi, origin="lower", extent=extent_vis)
+    if obs is not None:
+        save_obs = obs.copy()
+        cond = save_obs[:, 1] == "V2"
+        obs = save_obs[cond]
+        for i in range(len(obs)):
+            u = obs[i][0][0]
+            v = obs[i][0][1]
+            wl = obs[i][0][2]
+            u_freq = rad2arcsec(u / wl)  # / (1/mas2rad(1000))
+            v_freq = rad2arcsec(v / wl)  # / (1/mas2rad(1000))
+            plt.scatter(u_freq, v_freq, s=4, marker="o", alpha=0.3, color="r")
+            plt.scatter(-u_freq, -v_freq, s=4, marker="o", alpha=0.3, color="r")
     plt.title("Phase visibility", fontsize=12, color="grey", weight="bold")
     plt.xlabel("Sp. Freq [cycles/arcsec]")
     plt.ylabel("Sp. Freq [cycles/arcsec]")
     plt.axis([-rb, rb, -rb, rb])
 
     plt.subplot(1, 4, 3)
-    from matplotlib.colors import LogNorm
 
     plt.imshow(
         image_orient,
@@ -1360,7 +1161,7 @@ def plot_image_model(
     )
 
     if cont:
-        cs = plt.contour(
+        plt.contour(
             image_orient,
             levels=[0.5],
             colors=["r"],
@@ -1669,6 +1470,7 @@ def _summary_corner_sns(x, prec=2, color="#ee9068", **kwargs):
         "c$_j$": "",
         "s$_j$": "",
         "l$_a$": "",
+        "$r$": "AU",
     }
     mcmc = np.percentile(x, [16, 50, 84])
     q = np.diff(mcmc)
@@ -1695,9 +1497,17 @@ def _results_corner_sns(x, y, color="#ee9068", **kwargs):
 
 
 def plot_mcmc_results(
-    sampler, labels=None, burnin=200, compute_r=False, dpc=None, lk=None, prec=2
+    sampler,
+    labels=None,
+    burnin=200,
+    compute_r=False,
+    dpc=None,
+    lk=None,
+    prec=2,
+    compute_w=False,
 ):
     """ Plot modern corner plot using seaborn. """
+    sns.set_theme(color_codes=True)
     flat_samples = sampler.get_chain(discard=burnin, thin=15, flat=True)
 
     dict_mcmc = {}
@@ -1722,7 +1532,9 @@ def plot_mcmc_results(
     dict_mcmc["a"] = a
     w = ak / a
 
-    # dict_mcmc["w"] = w
+    if compute_w:
+        dict_mcmc["w"] = w
+
     try:
         del dict_mcmc["l$_k$"]
     except KeyError:
@@ -1732,7 +1544,7 @@ def plot_mcmc_results(
         if dpc is None:
             raise TypeError("Distance (dpc) is required to compute the radius in AU.")
         ar = dict_mcmc["a"]
-        dict_mcmc["a$_r*$"] = ar * dpc * 215.0 / 2.0
+        dict_mcmc["$r$"] = ar * dpc  # * 215.0 / 2.0
         try:
             del dict_mcmc["l$_a$"]
         except KeyError:
