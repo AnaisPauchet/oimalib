@@ -1,7 +1,5 @@
-import pathlib
-
-import oimalib
 import pytest
+import pathlib
 
 
 @pytest.fixture(scope="session")
@@ -17,13 +15,3 @@ def example_oifits_mat(global_datadir):
 @pytest.fixture()
 def example_oifits_grav(global_datadir):
     return global_datadir / "example_GRAVITY.oifits"
-
-
-def test_load_file(example_oifits_mat):
-    d = oimalib.load(example_oifits_mat, simu=True)
-    assert isinstance(d, dict)
-
-
-def test_load_file_grav(example_oifits_grav):
-    d = oimalib.load(example_oifits_grav, simu=True)
-    assert isinstance(d, dict)

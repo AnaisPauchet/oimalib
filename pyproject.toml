@@ -8,6 +8,7 @@ line-length = 88
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
+
 filterwarnings = [
     "error",
     # imp is indirectly used by uncertainties, see https://github.com/lebigot/uncertainties/issues/145
@@ -21,7 +22,11 @@ filterwarnings = [
     # we run tests against a non-GUI backend on purpose
     "ignore:Matplotlib is currently using agg, which is a non-GUI backend, so cannot show the figure.:UserWarning",
     # we ignore astropy warning (PyObject)
-    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject:RuntimeWarning"
+    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject:RuntimeWarning",
+    # we ignore astropy warning (PyObject)
+    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 88 from PyObject:RuntimeWarning",
+    # seaborn DeprecationWarning
+    "ignore:distutils Version classes are deprecated. Use packaging.version instead.:DeprecationWarning"
 ]
 
 [tool.coverage.run]
