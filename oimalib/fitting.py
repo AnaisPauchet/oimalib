@@ -1268,7 +1268,7 @@ def mcmcfit(
     method="normal",
     threads=1,
     progress=True,
-    plot_corner=True,
+    plot_corner=False,
     burnin=50,
     tobefit=["V2", "CP"],
     fast=False,
