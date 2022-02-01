@@ -24,6 +24,8 @@ filterwarnings = [
     # we ignore astropy warning (PyObject)
     "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject:RuntimeWarning",
     # we ignore astropy warning (PyObject)
+    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 88 from C header, got 96 from PyObject:RuntimeWarning",
+    # we ignore astropy warning (PyObject)
     "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 88 from PyObject:RuntimeWarning",
     # seaborn DeprecationWarning
     "ignore:distutils Version classes are deprecated. Use packaging.version instead.:DeprecationWarning"
