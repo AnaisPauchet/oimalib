@@ -335,7 +335,7 @@ def model_standard_fast(d, param):
         nbl = len(data.u)
         ncp = len(data.cp)
         model_target = select_model(param["model"])
-        mod_cvis = [] 
+        mod_cvis = []
         for i in range(nbl):
             vis2 = data.vis2[i]
             if len(vis2[~np.isnan(vis2)]) != 0:
@@ -793,107 +793,6 @@ def compute_chi2_curve(
     plt.show(block=False)
 
     return fit, errors_chi2
-
-
-# def smartfit(
-#     obs,
-#     first_guess,
-#     doNotFit=None,
-#     fitOnly=None,
-#     follow=None,
-#     multiproc=False,
-#     ftol=1e-4,
-#     epsfcn=1e-7,
-#     normalizeErrors=False,
-#     scale_err=1,
-#     # fitCP=True,
-#     # fitVis=False,
-#     # onlyCP=False,
-#     verbose=False,
-#     fitted=["CP", "V2"],
-# ):
-#     """
-#     Perform the fit of V2 and CP data contained in the obs tuple.
-
-#     Parameters:
-#     -----------
-
-#     obs: {tuple}
-#         Tuple containing all the selected data from format_obs function.\n
-#     first_guess: {dict}
-#         Parameters of the model.\n
-#     fitOnly: {list}
-#         fitOnly is a LIST of keywords to fit. By default, it fits all parameters in 'first_guess'.\n
-#     follow: {list}
-#         List of parameters to "follow" in the fit, i.e. to print in verbose mode.\n
-#     multiproc: {boolean}
-#         If True, use ModelM to compute the model with pool (12 cores by default).\n
-#     normalizeErrors: {boolean}
-#         If True, give the same weight for the V2 and CP data (even if only few CP compare to V2).\n
-#     fitCP: {boolean}
-#         If True, fit the CP data. If not fit only the V2 data.\n
-
-#     """
-
-#     save_obs = obs.copy()
-
-#     obs = []
-#     for o in save_obs:
-#         if o[1] in fitted:
-#             obs.append(o)
-#     obs = np.array(obs)
-
-#     errs = [o[-1] for o in obs]
-#     if normalizeErrors:
-#         errs = _normalize_err_obs(obs)
-
-#     first_guess["fitted"] = fitted
-#     # -- avoid fitting string parameters
-#     tmp = list(filter(lambda x: isinstance(first_guess[x], str), first_guess.keys()))
-#     # tmp = list(filter(lambda x: isinstance(tmp[x], list), tmp.keys()))
-
-#     if len(tmp) > 0:
-#         if doNotFit is None:
-#             doNotFit = tmp
-#         else:
-#             doNotFit.extend(tmp)
-#         try:
-#             fitOnly = list(
-#                 filter(lambda x: not isinstance(first_guess[x], str), fitOnly)
-#             )
-#         except Exception:
-#             pass
-
-#     if multiproc:
-#         M = model_standard_fast
-#     else:
-#         M = model_standard
-
-#     # M = model_standard_fast
-
-#     lfit = leastsqFit(
-#         M,
-#         obs,
-#         first_guess,
-#         [o[2] for o in obs],
-#         err=np.array(errs) * scale_err,
-#         doNotFit=doNotFit,
-#         fitOnly=fitOnly,
-#         follow=follow,
-#         normalizedUncer=False,
-#         verbose=verbose,
-#         ftol=ftol,
-#         epsfcn=epsfcn,
-#     )
-
-#     p = {}
-#     for k in fitOnly:
-#         err = lfit["uncer"][k]
-#         if err < 0:
-#             err = np.nan
-#         p[k] = ufloat(lfit["best"][k], err)
-#     lfit["p"] = p
-#     return lfit
 
 
 def smartfit(

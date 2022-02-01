@@ -1,9 +1,6 @@
 import numpy as np
 import oimalib
 from matplotlib import pyplot as plt
-from oimalib.fitting import check_params_model, select_model
-from oimalib.oifits import data2obs
-from glob import glob
 
 oifile = "doc/DATA/example_GRAVITY_Binary_s3_pa45.oifits"
 
