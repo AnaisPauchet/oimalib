@@ -1523,17 +1523,19 @@ def plot_mcmc_results(
         else:
             dict_mcmc[labels[i]] = flat_samples[:-1, i]
 
-    if lk is None:
-        lk = flat_samples[:-1, np.where(np.array(labels) == "l$_k$")[0][0]]
-    la = flat_samples[:-1, np.where(np.array(labels) == "l$_a$")[0][0]]
-    ar = 10 ** la / (np.sqrt(1 + 10 ** (2 * lk)))
-    ak = ar * (10 ** lk)
-    a = (ar ** 2 + ak ** 2) ** 0.5
-    dict_mcmc["a"] = a
-    w = ak / a
-
-    if compute_w:
-        dict_mcmc["w"] = w
+    try:
+        if lk is None:
+            lk = flat_samples[:-1, np.where(np.array(labels) == "l$_k$")[0][0]]
+        la = flat_samples[:-1, np.where(np.array(labels) == "l$_a$")[0][0]]
+        ar = 10 ** la / (np.sqrt(1 + 10 ** (2 * lk)))
+        ak = ar * (10 ** lk)
+        a = (ar ** 2 + ak ** 2) ** 0.5
+        dict_mcmc["a"] = a
+        w = ak / a
+        if compute_w:
+            dict_mcmc["w"] = w
+    except IndexError:
+        pass
 
     try:
         del dict_mcmc["l$_k$"]
