@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 @author: Anthony Soulain (University of Sydney)
 
@@ -8,9 +7,8 @@ OPTIMAL: OPTical Interferometry Modelisation and Analysis Library
 
 Fitting tools (developped by A. Merand).
 
--------------------------------------------------------------------- 
+--------------------------------------------------------------------
 """
-
 import time
 
 import numpy as np
@@ -42,7 +40,7 @@ def leastsqFit(
     err=None,
     fitOnly=None,
     verbose=False,
-    doNotFit=[],
+    doNotFit=None,
     epsfcn=1e-7,
     ftol=1e-5,
     fullOutput=True,
@@ -88,6 +86,8 @@ def leastsqFit(
     'fitOnly': names of the columns of 'cov'
     """
     # -- fit all parameters by default
+    if doNotFit is None:
+        doNotFit = []
     if fitOnly is None:
         if len(doNotFit) > 0:
             fitOnly = [x for x in list(params.keys()) if x not in doNotFit]
@@ -109,7 +109,16 @@ def leastsqFit(
     plsq, cov, info, mesg, ier = scipy.optimize.leastsq(
         _fitFunc,
         pfit,
-        args=(fitOnly, x, y, err, func, pfix, verbose, follow,),
+        args=(
+            fitOnly,
+            x,
+            y,
+            err,
+            func,
+            pfix,
+            verbose,
+            follow,
+        ),
         full_output=True,
         epsfcn=epsfcn,
         ftol=ftol,
@@ -124,7 +133,6 @@ def leastsqFit(
     # -- reduced chi2
     model = func(x, pfix)
     tmp = _fitFunc(plsq, fitOnly, x, y, err, func, pfix)
-
 
     try:
         chi2 = (np.array(tmp) ** 2).sum()
@@ -155,7 +163,7 @@ def leastsqFit(
                     uncer[k] *= np.sqrt(reducedChi2)
 
     pfix.pop("fitted", None)
-    
+
     if verbose:
         print("-" * 30)
         print("REDUCED CHI2=", reducedChi2)
@@ -245,67 +253,6 @@ def leastsqFit(
             "ff": ff,
         }
         return pfix
-
-
-def bootstrap(
-    func,
-    x,
-    params,
-    y,
-    err=None,
-    fitOnly=None,
-    verbose=False,
-    doNotFit=[],
-    epsfcn=1e-7,
-    ftol=1e-5,
-    fullOutput=True,
-    normalizedUncer=True,
-    follow=None,
-    Nboot=None,
-):
-    """
-    bootstraping, called like leastsqFit. returns a list of fits: the first one
-    is the 'normal' one, the Nboot following one are with ramdomization of data. If
-    Nboot is not given, it is set to 10*len(x).
-    """
-    if Nboot is None:
-        Nboot = 10 * len(x)
-    # first fit is the "normal" one
-    fits = [
-        leastsqFit(
-            func,
-            x,
-            params,
-            y,
-            err=err,
-            fitOnly=fitOnly,
-            verbose=False,
-            doNotFit=doNotFit,
-            epsfcn=epsfcn,
-            ftol=ftol,
-            fullOutput=True,
-            normalizedUncer=True,
-        )
-    ]
-    for k in range(Nboot):
-        s = np.int_(len(x) * np.random.rand(len(x)))
-        fits.append(
-            leastsqFit(
-                func,
-                x[s],
-                params,
-                y[s],
-                err=err,
-                fitOnly=fitOnly,
-                verbose=False,
-                doNotFit=doNotFit,
-                epsfcn=epsfcn,
-                ftol=ftol,
-                fullOutput=True,
-                normalizedUncer=True,
-            )
-        )
-    return fits
 
 
 def _fitFunc(

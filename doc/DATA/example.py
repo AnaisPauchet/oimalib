@@ -1,6 +1,7 @@
 import numpy as np
-import oimalib
 from matplotlib import pyplot as plt
+
+import oimalib
 
 oifile = "doc/DATA/example_GRAVITY_Binary_s3_pa45.oifits"
 

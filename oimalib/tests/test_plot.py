@@ -1,5 +1,6 @@
-from matplotlib import pyplot as plt
 import pytest
+from matplotlib import pyplot as plt
+
 import oimalib
 
 
@@ -109,4 +110,3 @@ def test_plot_model_with_obs(example_oifits_grav):
     oimalib.plot_image_model(wl, base_max=130, param=param, fov=50, npts=64, obs=obs)
     assert isinstance(d, dict)
     assert plt.gcf().number == 1
-

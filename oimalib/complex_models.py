@@ -1,18 +1,20 @@
-# -*- coding: utf-8 -*-
 """
 Created on Wed Nov  4 13:14:23 2015
 
 @author: asoulain
 """
-
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import special
 from termcolor import cprint
 
-from .binary import getBinaryPos, kepler_solve
+from .binary import getBinaryPos
+from .binary import kepler_solve
 from .fourier import shiftFourier
-from .tools import mas2rad, planck_law, rad2mas, computeBinaryRatio
+from .tools import computeBinaryRatio
+from .tools import mas2rad
+from .tools import planck_law
+from .tools import rad2mas
 
 
 def _elong_gauss_disk(u, v, a=1.0, cosi=1.0, pa=0.0):
@@ -105,7 +107,13 @@ def _azimuth_modulation_mod(u, v, lam, pa, cosi, ar, cj, sj):
     sum_mod = complex(0, 0)
     if not hasattr(cj, "__len__"):
         sum_mod += (
-            (-1j) * rho_j * np.cos(psi - theta_j) * special.jn(2 * np.pi * q * ar, 1,)
+            (-1j)
+            * rho_j
+            * np.cos(psi - theta_j)
+            * special.jn(
+                2 * np.pi * q * ar,
+                1,
+            )
         )
     else:
         for i in range(1, len(rho_j) + 1):
@@ -321,7 +329,7 @@ def visCont(Utable, Vtable, Lambda, param):
     """
     Compute complex visibility double gaussian model (same as TW Hya for the
     IR continuum).
-    
+
     Params:
     -------
     `fwhm` {float}:
@@ -367,7 +375,7 @@ def visYSO(Utable, Vtable, Lambda, param):
     """
     Compute complex visibility of a YSO model (star + gaussian disk + resolved
     halo). The halo contribution is computed with 1 - fc - fs.
-    
+
     Params:
     -------
     `hfr` {float}:
@@ -405,7 +413,7 @@ def visLazareff(Utable, Vtable, Lambda, param):
     """
     Compute complex visibility of a Lazareff model (star + thick ring + resolved
     halo). The halo contribution is computed with 1 - fc - fs.
-    
+
     Params:
     -------
     `la` {float}:
@@ -427,7 +435,7 @@ def visLazareff(Utable, Vtable, Lambda, param):
         Spectral index compared to reference wave at 2.2 µm,\n
     `c1`, `s1` {float}:
         Cosine and sine amplitude for the mode 1 (azimutal changes),\n
-    
+
     """
     u = Utable / Lambda
     v = Vtable / Lambda
@@ -500,7 +508,7 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
     """
     Compute complex visibility of a Lazareff model (star + thick ring + resolved
     halo). The halo contribution is computed with 1 - fc - fs.
-    
+
     Params:
     -------
     `la` {float}:
@@ -522,7 +530,7 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
         Spectral index compared to reference wave at 2.2 µm,\n
     `c1`, `s1` {float}:
         Cosine and sine amplitude for the mode 1 (azimutal changes),\n
-    
+
     """
     u = Utable / Lambda
     v = Vtable / Lambda
@@ -592,7 +600,7 @@ def visLazareff_line(Utable, Vtable, Lambda, param):
     """
     Compute complex visibility of a Lazareff model (star + thick ring + resolved
     halo). The halo contribution is computed with 1 - fc - fs.
-    
+
     Params:
     -------
     `la` {float}:
@@ -614,7 +622,7 @@ def visLazareff_line(Utable, Vtable, Lambda, param):
         Spectral index compared to reference wave at 2.2 µm,\n
     `c1`, `s1` {float}:
         Cosine and sine amplitude for the mode 1 (azimutal changes),\n
-    
+
     """
     u = Utable / Lambda
     v = Vtable / Lambda
@@ -785,8 +793,8 @@ def visEllipsoid(Utable, Vtable, Lambda, param):
         Inclination of the disk [deg],\n
     `pa` {float}:
         Orientation of the disk [deg],\n
-    `flor` {float}: 
-        Hybridation between purely gaussian (flor=0) 
+    `flor` {float}:
+        Hybridation between purely gaussian (flor=0)
         and Lorentzian radial profile (flor=1).
     """
     u = Utable / Lambda
@@ -1004,9 +1012,7 @@ def _compute_param_elts(
     if proj:
         proj_fact = np.cos(alpha / 2.0)
         if verbose:
-            print(
-                "Projection factor θ (%2.1f) = %2.2f" % (np.rad2deg(alpha), proj_fact)
-            )
+            print(f"Projection factor θ ({np.rad2deg(alpha):2.1f}) = {proj_fact:2.2f}")
     else:
         proj_fact = 1
 
@@ -1080,7 +1086,7 @@ def _compute_param_elts(
 
 
 def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
-    """ Compute only once the elements parameters fo the spiral. """
+    """Compute only once the elements parameters fo the spiral."""
     # Pinwheel parameters
     rounds = float(param["rounds"])
 
@@ -1107,7 +1113,7 @@ def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
     types = param["compo"]  # "r2"
 
     # fillFactor = param["fillFactor"]
-    thick = np.mean((minThick + maxThick)) / 2.0
+    thick = np.mean(minThick + maxThick) / 2.0
 
     N = int(param["nelts"] * rounds)
 
@@ -1397,7 +1403,7 @@ def visSpiralTemp(
 
 
 def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
-    """ Compute the complex visibility of a multi-component object."""
+    """Compute the complex visibility of a multi-component object."""
     n_obj = len(typei)
     corrFluxTmp = 0
     # for i in tqdm(range(n_obj), desc='Compute vis. components', leave=True, ncols=100,):
@@ -1446,13 +1452,13 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     - The halo (Optionnal): The pinwheel appeared to be surrounded by a fully
     resolved environment (similar to YSO halo properties, see Lazareff et al.
     2017). This contribution is set by `contrib_halo` [%], where the flux is
-    taken from the spiral contribution. 
+    taken from the spiral contribution.
     """
 
     mjd = param["mjd"]  # 50000.0
     phase = (mjd - param["mjd0"]) / param["P"] % 1
     if verbose:
-        s = "Model pinwheel S = %2.1f mas, phase = %1.2f @ %2.2f µm:" % (
+        s = "Model pinwheel S = {:2.1f} mas, phase = {:1.2f} @ {:2.2f} µm:".format(
             param["step"],
             phase,
             Lambda * 1e6,
@@ -1569,7 +1575,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
 
     if (expert_plot) & (param["r_nuc"] != 0):
         plt.figure()
-        plt.plot(dmas, Tr, label="r0 = %2.1f mas, T0 = %2.1f K" % (dmas[0], Tr[0]))
+        plt.plot(dmas, Tr, label=f"r0 = {dmas[0]:2.1f} mas, T0 = {Tr[0]:2.1f} K")
         plt.grid(alpha=0.2)
         plt.xlabel("Distance [mas]")
         plt.ylabel("Temperature [K]")
@@ -1612,7 +1618,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
             ms=5,
             markeredgecolor="k",
             markeredgewidth=0.5,
-            label=r"$\Sigma F_{%2.1fµm}$ = %2.1f Jy" % (wl_m, P_dust),
+            label=fr"$\Sigma F_{{{wl_m:2.1f}µm}}$ = {P_dust:2.1f} Jy",
         )
         plt.loglog(
             wl_m,
@@ -1623,7 +1629,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
             ms=5,
             markeredgecolor="k",
             markeredgewidth=0.5,
-            label=r"$\Sigma F_{*, %2.1fµm}$ = %2.1f Jy" % (wl_m, P_star),
+            label=fr"$\Sigma F_{{*, {wl_m:2.1f}µm}}$ = {P_star:2.1f} Jy",
         )
         plt.xlabel("Wavelength [µm]")
         plt.ylabel("SED [Jy]")
@@ -1631,20 +1637,20 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         plt.grid(alpha=0.1, which="both")
         plt.tight_layout()
 
-    try:
-        wl_peak = wl_sed[np.argmax(full_sed)]
-        sed_save = {
-            "wl": wl_sed,
-            "dust": full_sed,
-            "star": binary_sed,
-            "Fdust": P_dust,
-            "Fstar": P_star,
-            "wl_obs": wl_m,
-            "Twien": Twien,
-            "wl_peak": wl_peak,
-        }
-    except UnboundLocalError:
-        sed_save = None
+    # try:
+    #     wl_peak = wl_sed[np.argmax(full_sed)]
+    #     sed_save = {
+    #         "wl": wl_sed,
+    #         "dust": full_sed,
+    #         "star": binary_sed,
+    #         "Fdust": P_dust,
+    #         "Fstar": P_star,
+    #         "wl_obs": wl_m,
+    #         "Twien": Twien,
+    #         "wl_peak": wl_peak,
+    #     }
+    # except UnboundLocalError:
+    #     sed_save = None
 
     if contrib_star == 1:
         P_star = 1
