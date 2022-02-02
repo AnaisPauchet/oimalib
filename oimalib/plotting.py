@@ -125,6 +125,7 @@ def plot_tellu(label=None, plot_ind=False, val=5000, lw=0.5):
         "oimalib", "internal_data/Telluric_lines.txt"
     )
     tellu = np.loadtxt(file_tellu, skiprows=1)
+    file_tellu.close()
     plt.axvline(np.nan, lw=lw, c="gray", alpha=0.5, label=label)
     for i in range(len(tellu)):
         plt.axvline(tellu[i], lw=lw, c="crimson", ls="--", alpha=0.5)
@@ -1206,6 +1207,7 @@ def plot_spectra(
     spectra = data.flux
     wave_cal = data.wl
     tel = data.tel
+    # ins = data.info.Ins
 
     array_name = data.info["Array"]
     nbl = spectra.shape[0]

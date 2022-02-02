@@ -1262,5 +1262,6 @@ def get_mcmc_results(sampler, param, fitOnly, burnin=200):
         txt = txt.format(mcmc[1], q[0], q[1], fitOnly[i])
         print(txt)
         fit_mcmc["best"][fitOnly[i]] = mcmc[1]
-        fit_mcmc["uncer"][fitOnly[i]] = max(q[0], q[1])
+        fit_mcmc["uncer"][fitOnly[i] + '_m'] = q[0]
+        fit_mcmc["uncer"][fitOnly[i] + '_p'] = q[1]
     return fit_mcmc

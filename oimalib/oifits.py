@@ -10,6 +10,7 @@ OIFITS related function.
 """
 
 from glob import glob
+import sys
 
 import numpy as np
 from astropy.io import fits
@@ -614,7 +615,24 @@ def load(namefile, cam="SC", simu=False):
     tel = np.array(tel)
 
     # OI_T3 table
-    cp = fitsHandler["OI_T3", index_cam].data.field("T3PHI")
+    try:
+        cp = fitsHandler["OI_T3", index_cam].data.field("T3PHI")
+    except KeyError:
+        test_cp = isinstance(fitsHandler["OI_T3", None].data.field("T3PHI"), np.ndarray)
+        fitsHandler.close()
+        if test_cp:
+            print(
+                "Your dataset seems to be a simulation (from aspro2), you should add simu=True.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Your dataset have not OI_T3 with the supported index (%i), try another dataset."
+                % index_cam,
+                file=sys.stderr,
+            )
+        return None
+
     e_cp = fitsHandler["OI_T3", index_cam].data.field("T3PHIERR")
     index_cp = fitsHandler["OI_T3", index_cam].data.field("STA_INDEX")
     flag_cp = fitsHandler["OI_T3", index_cam].data.field("FLAG")

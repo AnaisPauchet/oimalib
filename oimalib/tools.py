@@ -185,12 +185,12 @@ def substract_run_med(spectrum, wave=None, n_box=50, shift_wl=0, div=False):
     spectral shift w.r.t. the telluric lines.
     """
     r_med = _running_median(spectrum, n_box)
+
     boxed_flux = spectrum[n_box // 2 : -n_box // 2 + 1]
 
     boxed_wave = np.arange(len(boxed_flux))
     if wave is not None:
         boxed_wave = wave[n_box // 2 : -n_box // 2 + 1] - shift_wl
-
     res = boxed_flux - r_med
     if div:
         r_med[r_med == 0] = np.nan
