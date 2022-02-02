@@ -16,14 +16,14 @@ def polyN(x, params):
     """
     res = 0
     for k in list(params.keys()):
-        res += params[k]*np.array(x)**float(k[1:])
+        res += params[k] * np.array(x) ** float(k[1:])
     return res
 
 
 def linear(x, params):
     """Linear model e.g. params={'A0':1.0, 'A1':2.0}"""
     res = 0
-    res = params['A0']*np.array(x) + params['A1']
+    res = params["A0"] * np.array(x) + params["A1"]
     return res
 
 
@@ -34,13 +34,13 @@ def power(x, params):
     only params['POW'] is mandatory
     """
     res = x
-    if 'X0' in params:
-        res -= params['X0']
-    res = res**params['POW']
-    if 'AMP' in params:
-        res *= params['AMP']
-    if 'OFFSET' in params:
-        res += params['OFFSET']
+    if "X0" in params:
+        res -= params["X0"]
+    res = res ** params["POW"]
+    if "AMP" in params:
+        res *= params["AMP"]
+    if "OFFSET" in params:
+        res += params["OFFSET"]
     return res
 
 
@@ -52,14 +52,14 @@ def gaussian(x, params):
     'OFFSET' are optional: if AMP is not given, the amplitude is set
     to 1/(sigma*sqrt(2*pi)).
     """
-    res = np.exp(-(x-params['MU'])**2/(2*params['SIGMA']**2))
-    if 'AMP' in params:
-        res *= params['AMP']
+    res = np.exp(-((x - params["MU"]) ** 2) / (2 * params["SIGMA"] ** 2))
+    if "AMP" in params:
+        res *= params["AMP"]
     else:
-        res *= 1./(params['SIGMA']*np.sqrt(2*np.pi))
+        res *= 1.0 / (params["SIGMA"] * np.sqrt(2 * np.pi))
 
-    if 'OFFSET' in params:
-        res += params['OFFSET']
+    if "OFFSET" in params:
+        res += params["OFFSET"]
     return res
 
 
@@ -69,14 +69,14 @@ def lorentzian(x, params):
 
     params: {'MU':, 'GAMMA':, ('OFFSET':,) ('AMP':)}. 'AMP' and
     'OFFSET' are optional: if AMP is not given, the amplitude is set to
-    1/(sigma*sqrt(2*pi)). """
-    res = 1/(1+(x-params['MU'])**2/(params['GAMMA']**2))
-    if 'AMP' in params:
-        res *= params['AMP']
+    1/(sigma*sqrt(2*pi))."""
+    res = 1 / (1 + (x - params["MU"]) ** 2 / (params["GAMMA"] ** 2))
+    if "AMP" in params:
+        res *= params["AMP"]
     else:
-        res *= 1./(params['GAMMA']*np.pi)
-    if 'OFFSET' in params:
-        res += params['OFFSET']
+        res *= 1.0 / (params["GAMMA"] * np.pi)
+    if "OFFSET" in params:
+        res += params["OFFSET"]
     return res
 
 
@@ -88,12 +88,12 @@ def sin(x, params):
 
     returns AMP*sin(2*pi*x/WAV + PHI) + OFFSET
     """
-    xx = 2*np.pi*x/params['WAV']
-    if 'PHI' in params:
-        xx += params['PHI']
-    res = params['AMP']*np.sin(xx)
-    if 'OFFSET' in params:
-        res += params['OFFSET']
+    xx = 2 * np.pi * x / params["WAV"]
+    if "PHI" in params:
+        xx += params["PHI"]
+    res = params["AMP"] * np.sin(xx)
+    if "OFFSET" in params:
+        res += params["OFFSET"]
     return res
 
 
@@ -105,12 +105,12 @@ def cos(x, params):
 
     returns AMP*cos(2*pi*x/WAV + PHI) + OFFSET
     """
-    xx = 2*np.pi*x/params['WAV']
-    if 'PHI' in params:
-        xx += params['PHI']
-    res = params['AMP']*np.cos(xx)
-    if 'OFFSET' in params:
-        res += params['OFFSET']
+    xx = 2 * np.pi * x / params["WAV"]
+    if "PHI" in params:
+        xx += params["PHI"]
+    res = params["AMP"] * np.cos(xx)
+    if "OFFSET" in params:
+        res += params["OFFSET"]
     return res
 
 
@@ -128,14 +128,15 @@ def fourier(x, params):
     warning, will crash if dictionnary is ill formed, for example:
     {'WAV':1.0, 'A1':1.0, 'PHI2':0}
     """
-    phi = [k for k in list(params.keys()) if k[:3] == 'PHI']
+    phi = [k for k in list(params.keys()) if k[:3] == "PHI"]
     res = np.copy(x)
     res *= 0
     for f in phi:
-        res += params['A'+f[3:]]*np.cos(float(f[3:])*2*np.pi*x/params['WAV']
-                                        + params[f])
-    if 'A0' in params:
-        res += params['A0']
+        res += params["A" + f[3:]] * np.cos(
+            float(f[3:]) * 2 * np.pi * x / params["WAV"] + params[f]
+        )
+    if "A0" in params:
+        res += params["A0"]
     return res
 
 
@@ -143,9 +144,9 @@ def _fell(t, param):
     """
     param ={'x0':, 'y0':, 'a':, 'b':, 'theta0':}
     """
-    x0, y0 = param['a']*np.cos(t), param['b']*np.sin(t)
-    x = x0*np.cos(param['theta0']) - y0*np.sin(param['theta0']) + param['x0']
-    y = x0*np.sin(param['theta0']) + y0*np.cos(param['theta0']) + param['y0']
+    x0, y0 = param["a"] * np.cos(t), param["b"] * np.sin(t)
+    x = x0 * np.cos(param["theta0"]) - y0 * np.sin(param["theta0"]) + param["x0"]
+    y = x0 * np.sin(param["theta0"]) + y0 * np.cos(param["theta0"]) + param["y0"]
     return x, y
 
 
@@ -158,10 +159,10 @@ def ellipse(xy, param):
     """
     t = []
     for k in range(len(xy[0])):
-        _x = xy[0][k]-param['x0']
-        _y = xy[1][k]-param['y0']
-        #t0 = np.arctan2(_x, _y)
-        t0 = np.arccos(_x/np.sqrt(_x**2+_y**2))*np.sign(_y)
+        _x = xy[0][k] - param["x0"]
+        _y = xy[1][k] - param["y0"]
+        # t0 = np.arctan2(_x, _y)
+        t0 = np.arccos(_x / np.sqrt(_x ** 2 + _y ** 2)) * np.sign(_y)
 
         t.append(t0)
     t = np.array(t)

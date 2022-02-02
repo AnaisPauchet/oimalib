@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 @author: Anthony Soulain (University of Sydney)
 -----------------------------------------------------------------
@@ -8,7 +7,6 @@ OIMALIB: Optical Interferometry Modelisation and Analysis Library
 Set of function to plot oi data, u-v plan, models, etc.
 -----------------------------------------------------------------
 """
-
 import numpy as np
 import pandas as pd
 import pkg_resources
@@ -20,17 +18,16 @@ from scipy.interpolate.interpolate import interp1d
 from termcolor import cprint
 
 from oimalib.complex_models import visGaussianDisk
-from oimalib.fitting import check_params_model, select_model
+from oimalib.fitting import check_params_model
+from oimalib.fitting import select_model
 from oimalib.fourier import UVGrid
 from oimalib.modelling import compute_geom_model
-from oimalib.tools import (
-    hide_xlabel,
-    mas2rad,
-    plot_vline,
-    rad2arcsec,
-    rad2mas,
-    substract_run_med,
-)
+from oimalib.tools import hide_xlabel
+from oimalib.tools import mas2rad
+from oimalib.tools import plot_vline
+from oimalib.tools import rad2arcsec
+from oimalib.tools import rad2mas
+from oimalib.tools import substract_run_med
 
 dic_color = {
     "A0-B2": "#928a97",  # SB
@@ -134,7 +131,7 @@ def plot_tellu(label=None, plot_ind=False, val=5000, lw=0.5):
 
 
 def _plot_uvdata_coord(tab, ax=None, rotation=0):
-    """ Plot u-v coordinated of a bunch of data (see `plot_uv()`). """
+    """Plot u-v coordinated of a bunch of data (see `plot_uv()`)."""
     if (type(tab) != list) & (type(tab) != np.ndarray):
         tab = [tab]
 
@@ -311,7 +308,7 @@ def plot_oidata(
                         yerr=e_vis2,
                         color=p_color,
                         label=label,
-                        **err_pts_style
+                        **err_pts_style,
                     )
                 else:
                     if color:
@@ -468,7 +465,7 @@ def plot_oidata(
             b1 = dic_index[data.index_cp[i][0]]
             b2 = dic_index[data.index_cp[i][1]]
             b3 = dic_index[data.index_cp[i][2]]
-            triplet = "%s-%s-%s" % (b1, b2, b3)
+            triplet = f"{b1}-{b2}-{b3}"
 
             label = ""
             if triplet not in list_triplet:
@@ -608,13 +605,11 @@ def plot_residuals(
         e_obs[i + nv2] = df_cp["e_cp"][i]
         all_mod[i + nv2] = df_cp["mod"][i]
 
-    chi2_global = np.sum(((obs - all_mod) ** 2 / (e_obs) ** 2)) / (
-        nobs - (d_freedom - 1)
-    )
+    chi2_global = np.sum((obs - all_mod) ** 2 / (e_obs) ** 2) / (nobs - (d_freedom - 1))
     title = "Statistic of the model %s" % param["model"]
     print(title)
     print("-" * len(title))
-    print("χ² = %2.2f (V² = %2.1f, CP = %2.1f)" % (chi2_global, chi2_vis2, chi2_cp))
+    print(f"χ² = {chi2_global:2.2f} (V² = {chi2_vis2:2.1f}, CP = {chi2_cp:2.1f})")
     return chi2_global, chi2_vis2, chi2_cp, mod_v2, mod_cp, chi2_vis2_full, chi2_cp_full
 
 
@@ -635,15 +630,15 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
             nbl = d.vis2.shape[0]
             nwl = d.vis2.shape[1]
             if k == "wl":
-                for i in range(nbl):
+                for _ in range(nbl):
                     dict_obs[k].extend(np.round(d[k] * 1e6, 3))
             elif k == "blname":
                 for j in range(nbl):
-                    for i in range(nwl):
+                    for _ in range(nwl):
                         dict_obs[k].append(d[k][j])
             elif k == "set":
-                for j in range(nbl):
-                    for i in range(nwl):
+                for _ in range(nbl):
+                    for _ in range(nwl):
                         dict_obs[k].append(nobs)
             else:
                 dict_obs[k].extend(d[k].flatten())
@@ -664,7 +659,7 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
 
     d_freedom = len(fitOnly)
 
-    chi2_vis2_full = np.sum(((df["vis2"] - df["mod"]) ** 2 / (df["e_vis2"]) ** 2))
+    chi2_vis2_full = np.sum((df["vis2"] - df["mod"]) ** 2 / (df["e_vis2"]) ** 2)
     chi2_vis2 = chi2_vis2_full / (len(df["e_vis2"]) - (d_freedom - 1))
 
     label = "DATA"
@@ -673,7 +668,8 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
 
     fig = plt.figure(constrained_layout=False, figsize=(7, 5))
     axd = fig.subplot_mosaic(
-        [["vis2"], ["res_vis2"]], gridspec_kw={"height_ratios": [3, 1]},
+        [["vis2"], ["res_vis2"]],
+        gridspec_kw={"height_ratios": [3, 1]},
     )
     ax = sns.scatterplot(
         x="freq_vis2",
@@ -707,7 +703,11 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
         capsize=2,
     )
     sns.scatterplot(
-        x="freq_vis2", y="res", data=df, zorder=10, ax=axd["res_vis2"],
+        x="freq_vis2",
+        y="res",
+        data=df,
+        zorder=10,
+        ax=axd["res_vis2"],
     )
     axd["res_vis2"].sharex(axd["vis2"])
     plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
@@ -747,15 +747,15 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
             nbl = d.cp.shape[0]
             nwl = d.cp.shape[1]
             if k == "wl":
-                for i in range(nbl):
+                for _ in range(nbl):
                     dict_obs[k].extend(np.round(d[k] * 1e6, 3))
             elif k == "cpname":
                 for j in range(nbl):
-                    for i in range(nwl):
+                    for _ in range(nwl):
                         dict_obs[k].append(d[k][j])
             elif k == "set":
-                for j in range(nbl):
-                    for i in range(nwl):
+                for _ in range(nbl):
+                    for _ in range(nwl):
                         dict_obs[k].append(nobs)
             else:
                 dict_obs[k].extend(d[k].flatten())
@@ -774,7 +774,7 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
 
     d_freedom = len(fitOnly)
 
-    chi2_cp_full = np.sum(((df["cp"] - df["mod"]) ** 2 / (df["e_cp"]) ** 2))
+    chi2_cp_full = np.sum((df["cp"] - df["mod"]) ** 2 / (df["e_cp"]) ** 2)
     chi2_cp = chi2_cp_full / (len(df["e_cp"]) - (d_freedom - 1))
 
     res_max = 5
@@ -783,7 +783,8 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
 
     fig = plt.figure(constrained_layout=False, figsize=(7, 5))
     axd = fig.subplot_mosaic(
-        [["cp"], ["res_cp"]], gridspec_kw={"height_ratios": [3, 1]},
+        [["cp"], ["res_cp"]],
+        gridspec_kw={"height_ratios": [3, 1]},
     )
     label = "DATA"
     if hue == "wl":
@@ -820,7 +821,11 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
         capsize=2,
     )
     sns.scatterplot(
-        x="freq_cp", y="res", data=df, zorder=10, ax=axd["res_cp"],
+        x="freq_cp",
+        y="res",
+        data=df,
+        zorder=10,
+        ax=axd["res_cp"],
     )
     axd["res_cp"].sharex(axd["cp"])
     plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
@@ -853,7 +858,7 @@ def plot_complex_model(
     p=0.5,
     rotation=0,
 ):
-    """ Plot model and corresponding visibility and phase plan. Additionallly, you
+    """Plot model and corresponding visibility and phase plan. Additionallly, you
         can add data to show the u-v coverage compare to model.
 
     Parameters
@@ -904,9 +909,7 @@ def plot_complex_model(
     modelname = grid.name
 
     fig, axs = plt.subplots(1, 3, figsize=(14, 5))
-    axs[0].set_title(
-        r'Model "%s" ($\lambda$ = %2.2f $\mu$m)' % (modelname, wl_model * 1e6)
-    )
+    axs[0].set_title(fr'Model "{modelname}" ($\lambda$ = {wl_model * 1e6:2.2f} $\mu$m)')
     axs[0].imshow(
         im_model, norm=PowerNorm(p), origin="lower", extent=extent_im, cmap="afmhot"
     )
@@ -1193,7 +1196,7 @@ def plot_spectra(
     data,
     aver=False,
     offset=0,
-    wl_lim=[2.16612, 0.03],
+    wl_lim=None,
     div=False,
     f_range=None,
     tellu=False,
@@ -1203,6 +1206,8 @@ def plot_spectra(
     d_speed=1000,
     norm=True,
 ):
+    if wl_lim is None:
+        wl_lim = [2.16612, 0.03]
 
     spectra = data.flux
     wave_cal = data.wl
@@ -1240,7 +1245,7 @@ def plot_spectra(
             wave,
             spec,
             lw=1.5,
-            label="Averaged (%s+%s+%s+%s)" % (tel[0], tel[1], tel[2], tel[3]),
+            label=f"Averaged ({tel[0]}+{tel[1]}+{tel[2]}+{tel[3]})",
         )
         plt.legend(fontsize=7)
     else:
@@ -1501,7 +1506,7 @@ def plot_mcmc_results(
     prec=2,
     compute_w=False,
 ):
-    """ Plot modern corner plot using seaborn. """
+    """Plot modern corner plot using seaborn."""
     sns.set_theme(color_codes=True)
     flat_samples = sampler.get_chain(discard=burnin, thin=15, flat=True)
 

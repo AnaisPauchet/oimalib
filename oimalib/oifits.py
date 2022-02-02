@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 @author: Anthony Soulain (University of Sydney)
 -----------------------------------------------------------------
@@ -8,9 +7,8 @@ OIMALIB: Optical Interferometry Modelisation and Analysis Library
 OIFITS related function.
 -----------------------------------------------------------------
 """
-
-from glob import glob
 import sys
+from glob import glob
 
 import numpy as np
 from astropy.io import fits
@@ -30,15 +28,15 @@ def _compute_dic_index(index_ref, teles_ref):
 
 
 def _compute_bl_name(index, index_ref, teles_ref):
-    """ Compute baseline name and check if the appropriate color 
-    is already associated (for the VLTI). """
+    """Compute baseline name and check if the appropriate color
+    is already associated (for the VLTI)."""
     dic_index = _compute_dic_index(index_ref, teles_ref)
 
     list_bl_name = []
     nbl = len(index)
     for i in range(nbl):
-        base = "%s-%s" % (dic_index[index[i][0]], dic_index[index[i][1]])
-        base2 = "%s-%s" % (dic_index[index[i][1]], dic_index[index[i][0]])
+        base = f"{dic_index[index[i][0]]}-{dic_index[index[i][1]]}"
+        base2 = f"{dic_index[index[i][1]]}-{dic_index[index[i][0]]}"
         if base in list(dic_color.keys()):
             baseline_name = base
         elif base2 in list(dic_color.keys()):
@@ -51,8 +49,8 @@ def _compute_bl_name(index, index_ref, teles_ref):
 
 
 def _compute_cp_name(index_cp, index_ref, teles_ref):
-    """ Compute triplet name and check if the appropriate color 
-    is already associated (for the VLTI). """
+    """Compute triplet name and check if the appropriate color
+    is already associated (for the VLTI)."""
     ncp = len(index_cp)
     dic_index = _compute_dic_index(index_ref, teles_ref)
 
@@ -61,15 +59,15 @@ def _compute_cp_name(index_cp, index_ref, teles_ref):
         b1 = dic_index[index_cp[i][0]]
         b2 = dic_index[index_cp[i][1]]
         b3 = dic_index[index_cp[i][2]]
-        triplet = "%s-%s-%s" % (b1, b2, b3)
+        triplet = f"{b1}-{b2}-{b3}"
         list_cp_name.append(triplet)
     list_cp_name = np.array(list_cp_name)
     return list_cp_name
 
 
 def oifits2dic(filename, rad=False):
-    """ 
-    Read an OiFits file and store observables (CP, V2, Vis, informations, etc,) 
+    """
+    Read an OiFits file and store observables (CP, V2, Vis, informations, etc,)
     in a dictionary format with keys corresponding to the standard oifits format.
     """
     fitsHandler = fits.open(filename)
@@ -338,7 +336,7 @@ def data2obs(
     -------
 
     `Obs` {tuple}:
-        Tuple containing all the selected data in an appropriate format to 
+        Tuple containing all the selected data in an appropriate format to
         perform the fit.
 
     """
@@ -377,12 +375,12 @@ def data2obs(
     u1_data, v1_data, u2_data, v2_data = [], [], [], []
 
     for i in range(nbl):
-        for j in range(nwl):
+        for _ in range(nwl):
             u_data.append(data.u[i])
             v_data.append(data.v[i])
 
     for i in range(ncp):
-        for j in range(nwl):
+        for _ in range(nwl):
             u1_data.append(data.u1[i])
             v1_data.append(data.v1[i])
             u2_data.append(data.u2[i])
@@ -504,9 +502,7 @@ def data2obs(
                 % (wl_bounds[0], chr(955), wl_bounds[1])
             )
         if cond_uncer:
-            print(
-                r"-> Restriction on uncertainties: %s < %2.1f %%" % (chr(949), rel_max)
-            )
+            print(fr"-> Restriction on uncertainties: {chr(949)} < {rel_max:2.1f} %")
 
     return Obs
 
@@ -521,7 +517,7 @@ def listfile2obs(
     rel_max=None,
     verbose=False,
 ):
-    """ Add all oifits file in the Obs data array. """
+    """Add all oifits file in the Obs data array."""
     Obs = data2obs(
         tab[0],
         use_flag=use_flag,

@@ -1,3 +1,6 @@
+import multiprocessing
+import sys
+
 import corner
 import emcee
 import numpy as np
@@ -5,18 +8,15 @@ from matplotlib import pyplot as plt
 from munch import munchify as dict2class
 from scipy.interpolate import interp1d
 from scipy.optimize import minimize
+from termcolor import cprint
 from tqdm import tqdm
 from uncertainties import ufloat
-from termcolor import cprint
 
 import oimalib
-
 from . import complex_models
 from .fit.dpfit import leastsqFit
-from .tools import mas2rad, round_sci_digit
-
-import multiprocessing
-import sys
+from .tools import mas2rad
+from .tools import round_sci_digit
 
 if sys.platform == "darwin":
     multiprocessing.set_start_method("fork", force=True)
@@ -34,8 +34,8 @@ err_pts_style = {
 
 
 def select_model(name):
-    """ Select a simple model computed in the Fourier space
-    (check model.py) """
+    """Select a simple model computed in the Fourier space
+    (check model.py)"""
     if name == "disk":
         model = complex_models.visUniformDisk
     elif name == "binary":
@@ -78,8 +78,8 @@ def select_model(name):
 
 
 def check_params_model(param):
-    """ Check if the user parameters are compatible
-    with the model. """
+    """Check if the user parameters are compatible
+    with the model."""
     isValid = True
     log = ""
     if param["model"] == "edisk":
@@ -221,7 +221,7 @@ def check_params_model(param):
 
 
 def comput_V2(X, param, model):
-    """ Compute squared visibility for a given model."""
+    """Compute squared visibility for a given model."""
     u = X[0]
     v = X[1]
     wl = X[2]
@@ -237,7 +237,7 @@ def comput_V2(X, param, model):
 
 
 def comput_phi(X, param, model):
-    """ Compute phase visibility for a given model."""
+    """Compute phase visibility for a given model."""
     u = X[0]
     v = X[1]
     wl = X[2]
@@ -253,7 +253,7 @@ def comput_phi(X, param, model):
 
 
 def comput_CP(X, param, model):
-    """ Compute closure phases for a given model."""
+    """Compute closure phases for a given model."""
     u1 = X[0]
     u2 = X[1]
     u3 = X[2]
@@ -480,12 +480,12 @@ def fits2obs(
     u1_data, v1_data, u2_data, v2_data = [], [], [], []
 
     for i in range(nbl):
-        for j in range(nwl):
+        for _ in range(nwl):
             u_data.append(data.u[i])
             v_data.append(data.v[i])
 
     for i in range(ncp):
-        for j in range(nwl):
+        for _ in range(nwl):
             u1_data.append(data.u1[i])
             v1_data.append(data.v1[i])
             u2_data.append(data.u2[i])
@@ -603,15 +603,13 @@ def fits2obs(
                 % (wl_min, chr(955), wl_max)
             )
         if cond_uncer:
-            print(
-                r"-> Restriction on uncertainties: %s < %2.1f %%" % (chr(949), rel_max)
-            )
+            print(fr"-> Restriction on uncertainties: {chr(949)} < {rel_max:2.1f} %")
 
     return Obs
 
 
 def _normalize_err_obs(obs, verbose=False):
-    """ Normalize the errorbars to give the same weight for the V2 and CP data """
+    """Normalize the errorbars to give the same weight for the V2 and CP data"""
 
     errs = [o[-1] for o in obs]
     techs = [("V2"), ("CP")]
@@ -742,7 +740,7 @@ def compute_chi2_curve(
         fitted_param = float(np.round(fitted_param, 2))
         dr1_r = float(np.round(dr1_r, 2))
         dr2_r = float(np.round(dr2_r, 2))
-        print("sig_chi2: %s = %s - %s + %s" % (name_param, fitted_param, dr1_r, dr2_r))
+        print(f"sig_chi2: {name_param} = {fitted_param} - {dr1_r} + {dr2_r}")
     except ValueError:
         print("Try to increase the parameters bounds (chi2_r).")
         return None
@@ -766,7 +764,7 @@ def compute_chi2_curve(
         ".",
         color="#fc5185",
         ms=10,
-        label="fit: %s=%2.2f±%2.2f" % (name_param, fit_theta, fit_e_theta),
+        label=f"fit: {name_param}={fit_theta:2.2f}±{fit_e_theta:2.2f}",
     )
     plt.axvspan(
         fitted_param - dr1_r,
@@ -774,7 +772,7 @@ def compute_chi2_curve(
         ymin=ymin,
         ymax=ymax,
         color="#dbe4e8",
-        label=r"$\sigma_{m1}=$-%s/+%s" % (dr1_r, dr2_r),
+        label=fr"$\sigma_{{m1}}=$-{dr1_r}/+{dr2_r}",
     )
     plt.axvspan(
         fitted_param - fit_e_theta,
@@ -806,7 +804,7 @@ def smartfit(
     normalizeErrors=False,
     scale_err=1,
     verbose=False,
-    tobefit=["CP", "V2"],
+    tobefit=None,
     fast=True,
 ):
     """
@@ -827,7 +825,8 @@ def smartfit(
         If True, give the same weight for each observables (even if only few CP compare to V2).
     """
     first_guess["fitted"] = tobefit
-
+    if tobefit is None:
+        tobefit = ["CP", "V2"]
     # -- avoid fitting string parameters
     tmp = list(filter(lambda x: isinstance(first_guess[x], str), first_guess.keys()))
 
@@ -1016,14 +1015,14 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
 
 
 def _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit, fast=False):
-    """ Compute model for mcmc purpose changing only the parameters from `fitOnly`.
-    
+    """Compute model for mcmc purpose changing only the parameters from `fitOnly`.
+
     Parameters:
     -----------
     `p_mcmc` {list, float}:
         List of parameter values formated for mcmc fitting process (the order is
         the same as `fitOnly` one),\n
-    `obs` {array}: 
+    `obs` {array}:
         List of data formated with oimalib.format_obs(). obs[0] is the u, v and
         wl position, obs[1] is the observable type ('V2', 'CP', 'VIS'), obs[2]
         is the observable value and obs[3] is the uncertainty,\n
@@ -1031,7 +1030,7 @@ def _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit, fast=False):
         Dictionnary of parameters used with oimalib features,\n
     `fitOnly` {list, str}:
         List of parameters to be fit (smartfit LM or MCMC).
-        
+
     Results:
     --------
     `model` {array}:
@@ -1050,7 +1049,7 @@ def _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit, fast=False):
 
 
 def log_prior(param, prior, fitOnly):
-    """ Return -inf if param[p] is outside prior requirements."""
+    """Return -inf if param[p] is outside prior requirements."""
     for i, p in enumerate(fitOnly):
         if param[i] < prior[p][0] or (param[i] > prior[p][1]):
             return -np.inf
@@ -1058,15 +1057,15 @@ def log_prior(param, prior, fitOnly):
 
 
 def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fast=False):
-    """ Compute the likelihood estimation between the model (represented by param
+    """Compute the likelihood estimation between the model (represented by param
     and only for fitOnly parameters) and the data (obs).
-    
+
     Parameters:
     -----------
     `p_mcmc` {list, float}:
         List of parameter values formated for mcmc fitting process (the order is
         the same as `fitOnly` one),\n
-    `obs` {array}: 
+    `obs` {array}:
         List of data formated with oimalib.format_obs(). obs[0] is the u, v and
         wl position, obs[1] is the observable type ('V2', 'CP', 'VIS'), obs[2]
         is the observable value and obs[3] is the uncertainty,\n
@@ -1094,14 +1093,14 @@ def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fast=False):
 
 
 def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, fast=False, obs=None):
-    """ Similar to log_probability() but including the prior restrictions.
-    
+    """Similar to log_probability() but including the prior restrictions.
+
     Parameters:
     -----------
     `p_mcmc` {list, float}:
         List of parameter values formated for mcmc fitting process (the order is
         the same as `fitOnly` one),\n
-    `obs` {array}: 
+    `obs` {array}:
         List of data formated with oimalib.format_obs(). obs[0] is the u, v and
         wl position, obs[1] is the observable type ('V2', 'CP', 'VIS'), obs[2]
         is the observable value and obs[3] is the uncertainty,\n
@@ -1111,7 +1110,7 @@ def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, fast=False, ob
         List of parameters to be fit (smartfit LM or MCMC),\n
     `prior` {dict}:
         Dictionnary with the keys as fitOnly where the param[a] need to be
-        between prior[a][0] <= param[a] <= prior[a][1]. 
+        between prior[a][0] <= param[a] <= prior[a][1].
     """
     lp = log_prior(p_mcmc, prior, fitOnly)
     if not np.isfinite(lp):
@@ -1127,7 +1126,12 @@ def neg_like_prob(*args):
 
 
 def _compute_initial_dist_mcmc(
-    nwalkers, fitOnly, method="normal", w_walker=0.1, param=None, prior=None,
+    nwalkers,
+    fitOnly,
+    method="normal",
+    w_walker=0.1,
+    param=None,
+    prior=None,
 ):
     nparam = len(fitOnly)
     pos = np.zeros([nwalkers, nparam])
@@ -1169,12 +1173,13 @@ def mcmcfit(
     progress=True,
     plot_corner=False,
     burnin=50,
-    tobefit=["V2", "CP"],
+    tobefit=None,
     fast=False,
 ):
     """ """
     ndim = len(fitOnly)
-
+    if tobefit is None:
+        tobefit = ["V2", "CP"]
     obs = np.concatenate([oimalib.format_obs(x) for x in data])
 
     save_obs = obs.copy()
@@ -1197,21 +1202,32 @@ def mcmcfit(
         initial_mcmc = soln.x
         print("\nMaximum likelihood estimates:")
         for i in range(ndim):
-            print("%s = %2.3f" % (fitOnly[i], initial_mcmc[i]))
+            print(f"{fitOnly[i]} = {initial_mcmc[i]:2.3f}")
 
     pool = multiprocessing.Pool(threads)
 
     sampler = emcee.EnsembleSampler(
-        nwalkers, ndim, log_probability, args=args, pool=pool,
+        nwalkers,
+        ndim,
+        log_probability,
+        args=args,
+        pool=pool,
     )
 
     pos = _compute_initial_dist_mcmc(
-        nwalkers, fitOnly, method=method, param=first_guess, prior=prior,
+        nwalkers,
+        fitOnly,
+        method=method,
+        param=first_guess,
+        prior=prior,
     )
 
     cprint("------- MCMC is running ------", "cyan")
     sampler.run_mcmc(
-        pos, niter, progress=progress, skip_initial_state_check=True,
+        pos,
+        niter,
+        progress=progress,
+        skip_initial_state_check=True,
     )
 
     pool.close()
@@ -1262,6 +1278,6 @@ def get_mcmc_results(sampler, param, fitOnly, burnin=200):
         txt = txt.format(mcmc[1], q[0], q[1], fitOnly[i])
         print(txt)
         fit_mcmc["best"][fitOnly[i]] = mcmc[1]
-        fit_mcmc["uncer"][fitOnly[i] + '_m'] = q[0]
-        fit_mcmc["uncer"][fitOnly[i] + '_p'] = q[1]
+        fit_mcmc["uncer"][fitOnly[i] + "_m"] = q[0]
+        fit_mcmc["uncer"][fitOnly[i] + "_p"] = q[1]
     return fit_mcmc

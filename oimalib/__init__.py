@@ -1,16 +1,20 @@
+from .data_processing import select_data
+from .data_processing import spectral_bin_data
+from .fitting import format_obs
+from .fitting import get_mcmc_results
+from .fitting import mcmcfit
+from .fitting import smartfit
+from .modelling import compute_geom_model
+from .modelling import compute_grid_model
+from .modelling import model2grid
 from .oifits import load
-from .plotting import (
-    plot_oidata,
-    plot_uv,
-    plot_residuals,
-    plot_complex_model,
-    plot_spectra,
-    plot_image_model,
-    plot_dvis,
-    plot_mcmc_results,
-)
-from .fitting import smartfit, format_obs, mcmcfit, get_mcmc_results
-from .data_processing import select_data, spectral_bin_data
-from .modelling import model2grid, compute_geom_model, compute_grid_model
+from .plotting import plot_complex_model
+from .plotting import plot_dvis
+from .plotting import plot_image_model
+from .plotting import plot_mcmc_results
+from .plotting import plot_oidata
+from .plotting import plot_residuals
+from .plotting import plot_spectra
+from .plotting import plot_uv
 
-__version__ = '0.2.0' 
+__version__ = "0.2.0"

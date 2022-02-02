@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Wed Aug  7 16:31:48 2019
 
 @author: asoulain
 """
-
 import math
+from bisect import bisect_left
+from bisect import insort
+from collections import deque
+from itertools import islice
 
 import numpy as np
 from astropy import constants as cs
-from bisect import bisect_left, insort
-from collections import deque
-from itertools import islice
 from matplotlib import pyplot as plt
 from uncertainties import umath
 
@@ -42,7 +41,7 @@ def rad2arcsec(rad):
 def incl2elong(incl):
     elong = 1.0 / umath.cos(incl * np.pi / 180.0)
     try:
-        print("elong = %2.3f +/- %2.3f" % (elong.nominal_value, elong.std_dev))
+        print(f"elong = {elong.nominal_value:2.3f} +/- {elong.std_dev:2.3f}")
     except AttributeError:
         print("elong = %2.2f" % elong)
     return elong
@@ -52,14 +51,14 @@ def check_hour_obs(list_data):
     mjd0 = list_data[0].info.mjd
     l_hour = []
     for d in list_data:
-        l_hour.append(((d.info.mjd - mjd0) * 24))
+        l_hour.append((d.info.mjd - mjd0) * 24)
     l_hour = np.array(l_hour)
     print(l_hour)
     return l_hour
 
 
 def round_sci_digit(number):
-    """ Rounds a float number with a significant digit number. """
+    """Rounds a float number with a significant digit number."""
     ff = str(number).split(".")[0]
     d = str(number).split(".")[1]
     d, ff = math.modf(number)
@@ -96,20 +95,20 @@ def planck_law(T, wl, norm=False):
 
 def _running_median(seq, M):
     """
-     Purpose: Find the median for the points in a sliding window (odd number in size)
-              as it is moved from left to right by one point at a time.
-      Inputs:
-            seq -- list containing items for which a running median (in a sliding window)
-                   is to be calculated
-              M -- number of items in window (window size) -- must be an integer > 1
-      Otputs:
-         medians -- list of medians with size N - M + 1
-       Note:
-         1. The median of a finite list of numbers is the "center" value when this list
-            is sorted in ascending order.
-         2. If M is an even number the two elements in the window that
-            are close to the center are averaged to give the median (this
-            is not by definition)
+    Purpose: Find the median for the points in a sliding window (odd number in size)
+             as it is moved from left to right by one point at a time.
+     Inputs:
+           seq -- list containing items for which a running median (in a sliding window)
+                  is to be calculated
+             M -- number of items in window (window size) -- must be an integer > 1
+     Otputs:
+        medians -- list of medians with size N - M + 1
+      Note:
+        1. The median of a finite list of numbers is the "center" value when this list
+           is sorted in ascending order.
+        2. If M is an even number the two elements in the window that
+           are close to the center are averaged to give the median (this
+           is not by definition)
     """
     seq = iter(seq)
     s = []
@@ -177,7 +176,7 @@ def normalize_continuum(yall, wave, inCont, degree=3, phase=False):
 
 
 def substract_run_med(spectrum, wave=None, n_box=50, shift_wl=0, div=False):
-    """ Substract running median from a raw spectrum `f`. The median
+    """Substract running median from a raw spectrum `f`. The median
     is computed at each points from n_box/2 to -n_box/2+1 in a
     'box' of size `n_box`. The Br gamma line in vaccum and telluric
     lines can be displayed if wavelengths table (`wave`) is specified.
@@ -232,12 +231,12 @@ def wtmn(values, weights, axis=0, cons=False):
 
 
 def binning_tab(data, nbox=50, force=False, rel_err=0.01):
-    """ Compute spectrally binned observables using weigthed averages (based
-    on squared uncertainties). 
-    
+    """Compute spectrally binned observables using weigthed averages (based
+    on squared uncertainties).
+
     Parameters:
     -----------
-    
+
     `data` {class}:
         Data class (see oimalib.load() for details),\n
     `nbox` {int}:
@@ -248,7 +247,7 @@ def binning_tab(data, nbox=50, force=False, rel_err=0.01):
         If True, force the uncertainties as the relative error `rel_err`,\n
     `rel_err` {float}:
         If `force`, relative uncertainties to be used [%].
-        
+
     Outputs:
     --------
     `l_wl`, `l_vis2`, `l_e_vis2`, `l_cp`, `l_e_cp` {array}:
@@ -346,7 +345,7 @@ def binning_tab(data, nbox=50, force=False, rel_err=0.01):
 
 
 def computeBinaryRatio(param, wl):
-    """ Compute binary ratio at the given wavelength according
+    """Compute binary ratio at the given wavelength according
     a total luminosity ratio of param['L_ratio_star'] (L_WR = X*L_OB).
     """
     T_Wr = param["T_WR"]

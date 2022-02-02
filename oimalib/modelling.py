@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 @author: Anthony Soulain (University of Sydney)
 -----------------------------------------------------------------
 OIMALIB: Optical Interferometry Modelisation and Analysis Library
 -----------------------------------------------------------------
 
-Set of function to extract complex visibilities from fits image/cube 
+Set of function to extract complex visibilities from fits image/cube
 or geometrical model.
 -----------------------------------------------------------------
 """
@@ -14,12 +13,15 @@ import time
 import numpy as np
 from astropy.io import fits
 from munch import munchify as dict2class
-from scipy.interpolate import RegularGridInterpolator as regip
 from scipy.interpolate import interp2d
+from scipy.interpolate import RegularGridInterpolator as regip
 from scipy.ndimage import rotate
 from termcolor import cprint
 
-from oimalib.fitting import comput_CP, comput_V2, select_model, check_params_model
+from oimalib.fitting import check_params_model
+from oimalib.fitting import comput_CP
+from oimalib.fitting import comput_V2
+from oimalib.fitting import select_model
 from oimalib.tools import rad2mas
 
 
@@ -29,7 +31,7 @@ def _print_info_model(wl_model, modelfile, fov, npix, s):
         modeltype = "image"
     else:
         modeltype = "cube"
-    title = "Model grid from %s (%s)" % (modeltype, modelfile.split("/")[-1])
+    title = "Model grid from {} ({})".format(modeltype, modelfile.split("/")[-1])
     cprint(title, "cyan")
     cprint("-" * len(title), "cyan")
     print(
@@ -314,13 +316,8 @@ def compute_geom_model(data, param, verbose=False):
         l_data = [data]
     else:
         l_data = data
-
-    ndata = len(l_data)
-
     start_time = time.time()
-
-    l_mod_v2 = []
-    l_mod_cp = []
+    l_mod_v2, l_mod_cp = [], []
     for data in l_data:
         model_target = select_model(param["model"])
         isValid, log = check_params_model(param)
@@ -358,7 +355,4 @@ def compute_geom_model(data, param, verbose=False):
     if verbose:
         print("Execution time compute_geom_model: %2.3f s" % (time.time() - start_time))
 
-    # if ndata == 1:
-    #    return l_mod_v2[0], l_mod_cp[0]
-    # else:
     return l_mod_v2, l_mod_cp

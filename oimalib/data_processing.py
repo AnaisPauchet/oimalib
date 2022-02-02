@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 @author: Anthony Soulain (University of Sydney)
 -----------------------------------------------------------------
@@ -8,17 +7,17 @@ OIMALIB: Optical Interferometry Modelisation and Analysis Library
 Set of function to perform data selection.
 -----------------------------------------------------------------
 """
-
+from copy import deepcopy
 
 import numpy as np
 from munch import munchify
-from copy import deepcopy
 
-from oimalib.tools import binning_tab, wtmn
+from oimalib.tools import binning_tab
+from oimalib.tools import wtmn
 
 
 def _check_bl_same(list_data):
-    """ Check if list_data contains only same VLTI configuration. """
+    """Check if list_data contains only same VLTI configuration."""
     blname_ref = list_data[0].blname
     diff_bl = []
     for i in range(len(list_data) - 1):
@@ -35,7 +34,7 @@ def _check_bl_same(list_data):
 
 
 def _check_good_tel(list_data, verbose=True):
-    """ Check if one telescope if down in the list of dataset. """
+    """Check if one telescope if down in the list of dataset."""
     data_ref = list_data[0]
     blname = data_ref.blname
     nbl = len(blname)
@@ -78,7 +77,7 @@ def _check_good_tel(list_data, verbose=True):
 
 
 def _select_bl(list_data, blname, exclude_tel):
-    """ Compute the bl index and name if some need to be excluded (e.g.: down telescope)."""
+    """Compute the bl index and name if some need to be excluded (e.g.: down telescope)."""
     if len(exclude_tel) == 0:
         good_bl = range(len(list_data[0].blname))
         good_bl_name = blname
@@ -101,7 +100,7 @@ def _select_data_v2(
     wl_bounds=None,
     rel_max=None,
 ):
-    """ Select data V2 using different criteria (errors, wavelenght, flag). """
+    """Select data V2 using different criteria (errors, wavelenght, flag)."""
     nwl = len(data.wl)
     sel_flag = sel_err = sel_wl = np.array([False] * nwl)
 
@@ -112,7 +111,7 @@ def _select_data_v2(
     e_vis2 = data.e_vis2[i]
     if cond_uncer:
         rel_err = e_vis2 / vis2
-        sel_err = np.invert((rel_err <= rel_max * 1e-2))
+        sel_err = np.invert(rel_err <= rel_max * 1e-2)
 
     if cond_wl:
         try:
@@ -136,7 +135,7 @@ def _select_data_cp(
     wl_bounds=None,
     rel_max=None,
 ):
-    """ Select data CP using different criteria (errors, wavelenght, flag). """
+    """Select data CP using different criteria (errors, wavelenght, flag)."""
     nwl = len(data.wl)
 
     sel_flag = sel_err = sel_wl = np.array([False] * nwl)
@@ -191,12 +190,12 @@ def select_data(
     seuil_v2=None,
     seuil_cp=None,
 ):
-    """ 
+    """
     Perform data selection base on uncertaintities (`cond_uncer`, `rel_max`),
-    wavelength (`cond_wl`, `wl_bounds`) and data flagging (`use_flag`). 
+    wavelength (`cond_wl`, `wl_bounds`) and data flagging (`use_flag`).
     Additionnal arguments are used to scale the uncertainties of the data (added
     and scaled).
-    
+
     Parameters:
     -----------
     `list_data` {class/list}:
@@ -277,12 +276,12 @@ def select_data(
 
 
 def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=None):
-    """ Compute spectrally binned observables using weigthed averages (based
-    on squared uncertainties). 
-    
+    """Compute spectrally binned observables using weigthed averages (based
+    on squared uncertainties).
+
     Parameters:
     -----------
-    
+
     `list_data` {list}:
         List of data class (see oimalib.load() for details),\n
     `nbox` {int}:
@@ -291,7 +290,7 @@ def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=No
         If True, force the uncertainties as the relative error `rel_err`,\n
     `rel_err` {float}:
         If `force`, relative uncertainties to be used [%].
-        
+
     Outputs:
     --------
     `output` {list}:
@@ -358,11 +357,11 @@ def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=No
 
 
 def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
-    """ Temporal bin between data observed during the same night. Can specify 
+    """Temporal bin between data observed during the same night. Can specify
     wavelength limits `wave_lim` (should be not used with spectrally binned data) and
     hour range `time_lim` to average the data according their observing time
-    compared to the first obs (should be within an hour). 
-    
+    compared to the first obs (should be within an hour).
+
     Parameters:
     -----------
     `list_data` {list}:
@@ -380,7 +379,7 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
     mjd0 = list_data[0].info.mjd
     l_hour = []
     for d in list_data:
-        l_hour.append(((d.info.mjd - mjd0) * 24))
+        l_hour.append((d.info.mjd - mjd0) * 24)
     l_hour = np.array(l_hour)
 
     if wave_lim is None:

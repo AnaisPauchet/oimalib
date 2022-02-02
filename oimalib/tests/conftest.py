@@ -1,6 +1,7 @@
-from matplotlib import pyplot as plt
-import pytest
 import pathlib
+
+import pytest
+from matplotlib import pyplot as plt
 
 
 @pytest.fixture()
