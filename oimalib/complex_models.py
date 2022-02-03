@@ -171,7 +171,7 @@ def visBinary(Utable, Vtable, Lambda, param):
     return C_centered
 
 
-def visResBinary(Utable, Vtable, Lambda, param):
+def visBinary_res(Utable, Vtable, Lambda, param):
     sep = mas2rad(param["sep"])
     dm = param["dm"]
     theta = np.deg2rad(90 - param["pa"])
@@ -237,9 +237,9 @@ def visEllipticalUniformDisk(Utable, Vtable, Lambda, param):
     v = Vtable / Lambda
 
     # List of parameter
-    elong = param["elong"]
-    minorAxis = mas2rad(param["minorAxis"])
-    majorAxis = elong * minorAxis
+    elong = np.cos(np.deg2rad(param["incl"]))
+    majorAxis = mas2rad(param["majorAxis"])
+    minorAxis = elong * majorAxis
     angle = np.deg2rad(param["pa"])
     x0 = mas2rad(param["x0"])
     y0 = mas2rad(param["y0"])
@@ -304,9 +304,9 @@ def visEllipticalGaussianDisk(Utable, Vtable, Lambda, param):
     v = Vtable / Lambda
 
     # List of parameter
-    elong = param["elong"]
-    minorAxis = mas2rad(param["minorAxis"])
-    majorAxis = elong * minorAxis
+    elong = np.cos(np.deg2rad(param["incl"]))
+    majorAxis = mas2rad(param["majorAxis"])
+    minorAxis = elong * majorAxis
     angle = np.deg2rad(param["pa"])
     x0 = param["x0"]
     y0 = param["y0"]
@@ -507,7 +507,7 @@ def visLazareff(Utable, Vtable, Lambda, param):
 def visLazareff_halo(Utable, Vtable, Lambda, param):
     """
     Compute complex visibility of a Lazareff model (star + thick ring + resolved
-    halo). The halo contribution is computed with 1 - fc - fs.
+    halo). The star contribution is computed with 1 - fc - fh.
 
     Params:
     -------
@@ -522,8 +522,8 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
         Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)),\n
     `pa` {float}:
         Orientation of the disk (from north to East) [rad],\n
-    `fs` {float}:
-        Flux contribution of the star [%],\n
+    `fh` {float}:
+        Flux contribution of the halo [%],\n
     `fc` {float}:
         Flux contribution of the disk [%],\n
     `ks` {float}:
@@ -721,9 +721,9 @@ def visThickEllipticalRing(Utable, Vtable, Lambda, param):
         Shift along x and y position [rad].
     """
 
-    elong = param["elong"]
-    minorAxis = mas2rad(param["minorAxis"])
-    majorAxis = elong * minorAxis
+    elong = np.cos(np.deg2rad(param["incl"]))
+    majorAxis = mas2rad(param["majorAxis"])
+    minorAxis = elong * majorAxis
     angle = np.deg2rad(param["pa"])
     thickness = mas2rad(param["w"])
     x0 = param["x0"]
@@ -841,7 +841,6 @@ def visLorentzDisk(Utable, Vtable, Lambda, param):
     q = (u ** 2 + v ** 2) ** 0.5
     r = 2 * np.pi * fwhm * q / np.sqrt(3)
     C_centered = np.exp(-r)
-
     C = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
     return C
 
@@ -864,18 +863,15 @@ def visDebrisDisk(Utable, Vtable, Lambda, param):
         Shift along x and y position [rad].
     """
 
-    majorAxis = mas2rad(param["majorAxis"]) * 2
-    inclination = np.deg2rad(param["incl"])
-    posang = np.deg2rad(param["posang"])
-    thickness = mas2rad(param["thickness"])
+    majorAxis = mas2rad(param["majorAxis"])
+    elong = np.cos(np.deg2rad(param["incl"]))
+    posang = np.deg2rad(param["pa"])
+    thickness = param["w"]
     cr_star = param["cr"]
     x0 = param["x0"]
     y0 = param["y0"]
 
-    minorAxis = majorAxis * np.cos(inclination)
-
-    # majorAxis = majorAxis_c * np.cos(inclination) - minorAxis_c * np.sin(inclination)
-    # minorAxis = -majorAxis_c * np.sin(inclination) + minorAxis_c * np.cos(inclination)
+    minorAxis = majorAxis * elong
 
     u = Utable / Lambda
     v = Vtable / Lambda
@@ -922,18 +918,15 @@ def visClumpDebrisDisk(Utable, Vtable, Lambda, param):
         Shift along x and y position [rad].
     """
 
-    majorAxis = mas2rad(param["majorAxis"]) * 2
-    inclination = np.deg2rad(param["incl"])
-    posang = np.deg2rad(param["posang"])
-    thickness = mas2rad(param["thickness"])
-    cr_star = param["cr"]
+    majorAxis = mas2rad(param["majorAxis"])
+    elong = np.cos(np.deg2rad(param["incl"]))
+    posang = np.deg2rad(param["pa"])
+    thickness = param["w"]
+    fs = param["fs"] / 100.0
     x0 = param["x0"]
     y0 = param["y0"]
 
-    minorAxis = majorAxis * np.cos(inclination)
-
-    # majorAxis = majorAxis_c * np.cos(inclination) - minorAxis_c * np.sin(inclination)
-    # minorAxis = -majorAxis_c * np.sin(inclination) + minorAxis_c * np.cos(inclination)
+    minorAxis = majorAxis * elong
 
     u = Utable / Lambda
     v = Vtable / Lambda
@@ -943,15 +936,16 @@ def visClumpDebrisDisk(Utable, Vtable, Lambda, param):
         + ((u * np.cos(posang) - v * np.sin(posang)) * minorAxis) ** 2
     )
 
-    d_clump = mas2rad(param["d_clump"])
-    cr_clump = param["cr_clump"] / 100.0
+    d_clump = param["d_clump"]
+    pa_clump = -np.deg2rad(param["pa_clump"])
+    fc = param["fc"] / 100.0
 
     x1 = 0
-    y1 = majorAxis * np.cos(inclination)
-    x_clump = (x1 * np.cos(posang) - y1 * np.sin(posang)) / 2.0
-    y_clump = (x1 * np.sin(posang) + y1 * np.cos(posang)) / 2.0
+    y1 = majorAxis * elong
+    x_clump = (x1 * np.cos(pa_clump) - y1 * np.sin(pa_clump)) / 2.0
+    y_clump = (x1 * np.sin(pa_clump) + y1 * np.cos(pa_clump)) / 2.0
 
-    p_clump = {"fwhm": d_clump, "x0": x_clump, "y0": y_clump}
+    p_clump = {"fwhm": d_clump, "x0": rad2mas(x_clump), "y0": rad2mas(y_clump)}
 
     C_clump = visGaussianDisk(Utable, Vtable, Lambda, p_clump)
 
@@ -961,21 +955,13 @@ def visClumpDebrisDisk(Utable, Vtable, Lambda, param):
         Utable, Vtable, Lambda, {"fwhm": thickness, "x0": 0.0, "y0": 0.0}
     )
 
-    fstar = cr_star
-    fdisk = 1
-    total_flux = fstar + fdisk
-
-    f_clump = cr_clump * total_flux
-    f_debrisdisk = (1 - cr_clump) * total_flux
-
-    rel_star = fstar / total_flux
-    rel_disk = fdisk / total_flux
+    fd = 1 - fs - fc
 
     p_s1 = {"x0": x0, "y0": y0}
-    s1 = rel_star * visPointSource(Utable, Vtable, Lambda, p_s1)
-    s2 = rel_disk * C
-    deb_disk = s1 + s2
-    return f_debrisdisk * deb_disk + f_clump * C_clump
+    c_star = fs * visPointSource(Utable, Vtable, Lambda, p_s1)
+    c_ring = fd * C
+    c_clump = fc * C_clump
+    return c_star + c_ring + c_clump
 
 
 def _compute_param_elts(

@@ -50,7 +50,7 @@ def select_model(name):
         model = complex_models.visClumpDebrisDisk
     elif name == "gdisk":
         model = complex_models.visGaussianDisk
-    elif name == "egauss":
+    elif name == "egdisk":
         model = complex_models.visEllipticalGaussianDisk
     elif name == "ering":
         model = complex_models.visThickEllipticalRing
@@ -83,10 +83,10 @@ def check_params_model(param):
     isValid = True
     log = ""
     if param["model"] == "edisk":
-        elong = param["elong"]
-        minorAxis = mas2rad(param["minorAxis"])
+        elong = np.cos(np.deg2rad(param["incl"]))
+        majorAxis = mas2rad(param["majorAxis"])
         angle = np.deg2rad(param["pa"])
-        if (elong < 1) or (angle < 0) or (angle > np.pi) or (minorAxis < 0):
+        if (elong > 1) or (angle < 0) or (angle > np.pi) or (majorAxis < 0):
             log = "# elong > 1,\n# minorAxis > 0 mas,\n# 0 < pa < 180 deg."
             isValid = False
     elif param["model"] == "binary":
