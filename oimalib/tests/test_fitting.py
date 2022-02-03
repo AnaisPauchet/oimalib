@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 import oimalib
@@ -47,3 +48,10 @@ def test_mcmc(example_oifits_grav):
     assert e_sep <= prec * true_sep
     assert e_pa <= prec * true_pa
     assert e_dm <= prec * true_dm
+
+
+def test_uvline():
+    npts = 10
+    uvline = oimalib.fourier.UVLine(0, 10, 45, npts)
+    assert isinstance(uvline, np.ndarray)
+    assert len(uvline[0]) == npts

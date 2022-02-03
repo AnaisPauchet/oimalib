@@ -37,11 +37,8 @@ def UVGrid(bmax, npts):
 
 def UVLine(basemin, basemax, angle, npts):
     """Select an line in the (u-v) plan"""
-
-    UVtable = np.zeros([npts, 2])
-
+    UVtable = np.zeros([2, npts])
     x = np.linspace(basemin, basemax, npts)
-    UVtable[:, 0] = x * np.sin(angle)
-    UVtable[:, 1] = x * np.cos(angle)
-
+    UVtable[0] = x * np.sin(np.deg2rad(angle))
+    UVtable[1] = x * np.cos(np.deg2rad(angle))
     return UVtable
