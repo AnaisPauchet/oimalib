@@ -37,12 +37,15 @@ jobs:
       run:   |
         if [ "$RUNNER_OS" == "Linux" ]; then
             python -m pip install --upgrade pip\<22.0
+            python -m pip install .[dev]
         elif [ "$RUNNER_OS" == "Windows" ]; then
-              python -m pip install --upgrade pip<22.0
+            python -m pip install --upgrade pip<22.0
+            python -m pip install .[dev]
         elif [ "$RUNNER_OS" == "macOS" ]; then
-              python -m pip install --upgrade pip\<22.0
+            python -m pip install --upgrade pip\<22.0
+            python -m pip install .[dev]
         fi
-        python -m pip install .[dev]
+
     - name: Run tests
       run: |
         pytest
