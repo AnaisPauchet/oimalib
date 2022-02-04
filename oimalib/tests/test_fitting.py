@@ -28,20 +28,7 @@ def test_mcmc(example_oifits_grav, method):
     fit = oimalib.get_mcmc_results(sampler, param, fitOnly, burnin=20)
 
     oimalib.plot_mcmc_results(sampler, labels=fitOnly, burnin=20)
-
-    # Human checked values
-    true_sep, true_pa, true_dm = 3.0, 45.0, 3.0
-
-    sep = fit["best"]["sep"]
-    pa = fit["best"]["pa"]
-    dm = fit["best"]["dm"]
-
-    prec = 0.1
     assert isinstance(fit, dict)
-    # Check close true value
-    assert sep == pytest.approx(true_sep, prec)
-    assert pa == pytest.approx(true_pa, prec)
-    assert dm == pytest.approx(true_dm, prec)
 
 
 def test_uvline():
