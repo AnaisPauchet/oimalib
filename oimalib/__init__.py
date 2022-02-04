@@ -2,6 +2,7 @@ from .data_processing import select_data
 from .data_processing import spectral_bin_data
 from .fitting import format_obs
 from .fitting import get_mcmc_results
+from .fitting import get_stat_data
 from .fitting import mcmcfit
 from .fitting import smartfit
 from .modelling import compute_geom_model
