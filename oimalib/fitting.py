@@ -50,7 +50,7 @@ def select_model(name):
         model = complex_models.visClumpDebrisDisk
     elif name == "gdisk":
         model = complex_models.visGaussianDisk
-    elif name == "egauss":
+    elif name == "egdisk":
         model = complex_models.visEllipticalGaussianDisk
     elif name == "ering":
         model = complex_models.visThickEllipticalRing
@@ -83,10 +83,10 @@ def check_params_model(param):
     isValid = True
     log = ""
     if param["model"] == "edisk":
-        elong = param["elong"]
-        minorAxis = mas2rad(param["minorAxis"])
+        elong = np.cos(np.deg2rad(param["incl"]))
+        majorAxis = mas2rad(param["majorAxis"])
         angle = np.deg2rad(param["pa"])
-        if (elong < 1) or (angle < 0) or (angle > np.pi) or (minorAxis < 0):
+        if (elong > 1) or (angle < 0) or (angle > np.pi) or (majorAxis < 0):
             log = "# elong > 1,\n# minorAxis > 0 mas,\n# 0 < pa < 180 deg."
             isValid = False
     elif param["model"] == "binary":
@@ -271,66 +271,46 @@ def comput_CP(X, param, model):
     return CP
 
 
-def engine_multi_proc(inputs):
-    """
-    Function used to parallelize (model_parallelized() function).
-    """
-    try:
-        X = inputs[0]
-        typ = inputs[1]
-        param = inputs[-1]
+def get_stat_data(data, verbose=True):
+    npts_init = 0
+    n_flag_vis2, n_flag_cp = 0, 0
+    n_nan_vis2, n_nan_cp = 0, 0
+    n_vis2, n_cp = 0, 0
+    for d in data:
+        vis2 = d.vis2.flatten()
+        cp = d.cp.flatten()
+        flag_vis2 = d.flag_vis2.flatten()
+        flag_cp = d.flag_cp.flatten()
+        n_flag_vis2 += len(vis2[flag_vis2])
+        n_flag_cp += len(cp[flag_cp])
+        n_nan_vis2 += len(vis2[np.isnan(vis2) & ~flag_vis2])
+        n_nan_cp += len(cp[np.isnan(cp) & ~flag_cp])
+        n_vis2 += len(d.vis2.flatten())
+        n_cp += len(d.cp.flatten())
+        npts_init += len(d.vis2.flatten())
+        npts_init += len(d.cp.flatten())
 
-        modelname = param["model"]
-
-        model_target = select_model(modelname)
-
-        if typ == "V2":
-            mod = comput_V2(X, param, model_target)
-        elif typ == "CP":
-            mod = comput_CP(X, param, model_target)
-        else:
-            mod = np.nan
-    except Exception:
-        mod = 0
-
-    return mod
-
-
-def model_standard(obs, param):
-    """
-    Compute model for each data points in obs tuple.
-    """
-    modelname = param["model"]
-    model_target = select_model(modelname)
-    bunch = len(obs)
-    res = np.zeros(bunch)
-    for i in range(bunch):
-        try:
-            typ = obs[i][1]
-            if typ == "V2":
-                X = obs[i][0]
-                mod = comput_V2(X, param, model_target)
-            elif typ == "V":
-                X = obs[i][0]
-                mod = comput_V2(X, param, model_target) ** 0.5
-            elif typ == "CP":
-                X = obs[i][0]
-                mod = comput_CP(X, param, model_target)
-            elif typ == "phi":
-                X = obs[i][0]
-                mod = comput_phi(X, param, model_target)
-            else:
-                mod = np.nan
-            res[i] = mod
-        except TypeError:
-            pass
-
-    output = np.array(res)
-    return output
+    txt = "\nTotal npts = %i (vis2 = %i, cp = %i)" % (npts_init, n_vis2, n_cp)
+    if verbose:
+        cprint(txt, "cyan")
+        cprint("-" * len(txt), "cyan")
+        print("V2 flag = %i , nan = %i" % (n_flag_vis2, n_nan_vis2))
+        print("CP flag = %i , nan = %i" % (n_flag_cp, n_nan_cp))
+    npts_good = npts_init - n_nan_cp - n_nan_vis2 - n_flag_cp - n_flag_vis2
+    npts_good_vis2 = n_vis2 - n_flag_vis2 - n_nan_vis2
+    npts_good_cp = n_cp - n_flag_cp - n_nan_cp
+    if verbose:
+        print(
+            "Good pts = %i (vis2 = %i, cp = %i)"
+            % (npts_good, npts_good_vis2, npts_good_cp)
+        )
+        cprint("-" * len(txt), "cyan")
+        print()
+    return npts_good
 
 
-def model_standard_fast(d, param):
-    l_mod_cp, l_mod_cvis = [], []
+def model_standard(d, param):
+    l_mod_cp, l_mod_cvis, l_mod_dvis = [], [], []
     for data in d:
         nbl = len(data.u)
         ncp = len(data.cp)
@@ -338,40 +318,53 @@ def model_standard_fast(d, param):
         mod_cvis = []
         for i in range(nbl):
             vis2 = data.vis2[i]
+            flag = data.flag_vis2[i]
             if len(vis2[~np.isnan(vis2)]) != 0:
-                flag = data.flag_vis2[i]
                 u, v, wl = data.u[i], data.v[i], data.wl[~flag]
                 mod_cvis.append(model_target(u, v, wl, param))
-        mod_cp = []  # np.zeros_like(data.cp)
+        mod_dvis = []
+        for i in range(nbl):
+            dvis = data.vis2[i]
+            flag = data.flag_dvis[i]
+            if len(vis2[~np.isnan(dvis)]) != 0:
+                u, v, wl = data.u[i], data.v[i], data.wl[~flag]
+                mod_dvis.append(model_target(u, v, wl, param))
+        mod_cp = []
         for i in range(ncp):
             cp = data.cp[i]
-            cond_bad_cp = len(cp[~np.isnan(cp)]) != 0
-            if cond_bad_cp:
-                flag = data.flag_cp[i]
+            flag = data.flag_cp[i]
+            if len(cp[~np.isnan(cp)]) != 0:
                 u1, u2, u3 = data.u1[i], data.u2[i], data.u3[i]
                 v1, v2, v3 = data.v1[i], data.v2[i], data.v3[i]
-                wl2 = data.wl[~flag]
-                X = [u1, u2, u3, v1, v2, v3, wl2]
+                wl = data.wl[~flag]
+                X = [u1, u2, u3, v1, v2, v3, wl]
                 tmp = comput_CP(X, param, model_target)
                 mod_cp.append(tmp)
         l_mod_cp.append(mod_cp)
         l_mod_cvis.append(mod_cvis)
-    l_mod_cp = np.array(l_mod_cp)
-    l_mod_cvis = np.array(l_mod_cvis)
-
+        l_mod_dvis.append(mod_dvis)
+    l_mod_cp = np.array(l_mod_cp, dtype=object)
+    l_mod_cvis = np.array(l_mod_cvis, dtype=object)
+    l_mod_dvis = np.array(l_mod_dvis, dtype=object)
     fitted = param["fitted"]
     model_fast = []
     for i in range(len(l_mod_cvis)):
+        cvis = l_mod_cvis[i]
+        cvis_flat = np.hstack(cvis.flatten())
+        dvis = l_mod_dvis[i]
+        if len(dvis[0]) > 1:
+            dvis_flat = np.hstack(dvis.flatten())
+        cp = l_mod_cp[i]
+        cp_flat = np.hstack(cp.flatten())
         if "V2" in fitted:
-            model_fast += list(np.abs(l_mod_cvis[i].flatten()) ** 2)
-        if "V" in fitted:
-            model_fast += np.abs(l_mod_cvis[i].flatten())
-        if "phi" in fitted:
-            model_fast += np.angle(l_mod_cvis[i].flatten(), deg=True)
-        if "CP":
-            model_fast += list(l_mod_cp[i].flatten())
+            model_fast += list(np.abs(cvis_flat) ** 2)
+        if "dvis" in fitted:
+            model_fast += list(np.abs(dvis_flat))
+        if "dphi" in fitted:
+            model_fast += list(np.angle(dvis_flat, deg=True))
+        if "CP" in fitted:
+            model_fast += list(cp_flat)
     model_fast = np.array(model_fast)
-
     npts = len(model_fast)
     isValid = check_params_model(param)[0]
     if isValid:
@@ -379,233 +372,6 @@ def model_standard_fast(d, param):
     else:
         model_fast = [np.nan] * npts
     return model_fast
-
-
-def model_parallelized(obs, param, ncore=12):
-    """
-    Compute model for each data points in obs tuple (multiprocess version).
-    """
-    pool = multiprocessing.Pool(ncore)
-
-    b = np.array([param] * len(obs))
-    c = b.reshape(len(obs), 1)
-    d = np.append(obs, c, axis=1)
-
-    res = pool.map(engine_multi_proc, d)
-
-    pool.close()
-    pool.join()
-    return np.array(res)
-
-
-def fits2obs(
-    inputdata,
-    use_flag=True,
-    cond_wl=False,
-    wl_min=None,
-    wl_max=None,
-    cond_uncer=False,
-    rel_max=None,
-    extra_error_v2=0,
-    extra_error_cp=0,
-    err_scale=1,
-    input_rad=False,
-    verbose=True,
-):
-    """
-    Convert and select data from an oifits file.
-
-    Parameters:
-    -----------
-
-    `inputdata`: {str}
-        Oifits file,\n
-    `use_flag`: {boolean}
-        If True, use flag from the original oifits file,\n
-    `cond_wl`: {boolean}
-        If True, apply wavelenght restriction between wl_min and wl_max,\n
-    `wl_min`, `wl_max`: {float}
-        if cond_wl, limits of the wavelength domain [µm],\n
-    `cond_uncer`: {boolean}
-        If True, select the best data according their relative uncertainties (rel_max),\n
-    `rel_max`: {float}
-        if cond_uncer, maximum sigma uncertainties allowed [%],\n
-    `extra_error_v2`: {float}
-        Additional uncertainty of the V2 (added quadraticaly),\n
-    `extra_error_cp`: {float}
-        Additional uncertainty of the CP (added quadraticaly),\n
-    `err_scale`: {float}
-        Scaling factor applied on the CP uncertainties usualy used to
-        include the non-independant CP correlation,\n
-    `verbose`: {boolean}
-        If True, display useful information about the data selection,\n
-
-
-    Return:
-    -------
-
-    Obs: {tuple}
-        Tuple containing all the selected data in an appropriate format to perform the fit.
-
-    """
-
-    data = oimalib.load(inputdata)
-    nwl = len(data.wl)
-
-    nbl = data.vis2.shape[0]
-    ncp = data.cp.shape[0]
-
-    vis2_data = data.vis2.flatten()  # * 0.97
-    e_vis2_data = (data.e_vis2.flatten() ** 2 + extra_error_v2 ** 2) ** 0.5
-    flag_V2 = data.flag_vis2.flatten()
-
-    if input_rad:
-        cp_data = np.rad2deg(data.cp.flatten())
-        e_cp_data = np.rad2deg(
-            np.sqrt(data.e_cp.flatten() ** 2 + extra_error_cp ** 2) * err_scale
-        )
-    else:
-        cp_data = data.cp.flatten()
-        e_cp_data = np.sqrt(data.e_cp.flatten() ** 2 + extra_error_cp ** 2) * err_scale
-
-    flag_CP = data.flag_cp.flatten()
-
-    if use_flag:
-        pass
-    else:
-        flag_V2 = [False] * len(vis2_data)
-        flag_CP = [False] * len(cp_data)
-
-    u_data, v_data = [], []
-    u1_data, v1_data, u2_data, v2_data = [], [], [], []
-
-    for i in range(nbl):
-        for _ in range(nwl):
-            u_data.append(data.u[i])
-            v_data.append(data.v[i])
-
-    for i in range(ncp):
-        for _ in range(nwl):
-            u1_data.append(data.u1[i])
-            v1_data.append(data.v1[i])
-            u2_data.append(data.u2[i])
-            v2_data.append(data.v2[i])
-
-    u_data = np.array(u_data)
-    v_data = np.array(v_data)
-
-    u1_data = np.array(u1_data)
-    v1_data = np.array(v1_data)
-    u2_data = np.array(u2_data)
-    v2_data = np.array(v2_data)
-
-    wl_data = np.array(list(data.wl) * nbl)
-    wl_data_cp = np.array(list(data.wl) * ncp)
-
-    obs = []
-
-    for i in range(nbl * nwl):
-        if flag_V2[i] & use_flag:
-            pass
-        else:
-            if not cond_wl:
-                tmp = [u_data[i], v_data[i], wl_data[i]]
-                typ = "V2"
-                obser = vis2_data[i]
-                err = e_vis2_data[i]
-                if cond_uncer:
-                    if err / obser <= rel_max * 1e-2:
-                        obs.append([tmp, typ, obser, err])
-                    else:
-                        pass
-                else:
-                    obs.append([tmp, typ, obser, err])
-
-            else:
-                if (wl_data[i] >= wl_min * 1e-6) & (wl_data[i] <= wl_max * 1e-6):
-                    tmp = [u_data[i], v_data[i], wl_data[i]]
-                    typ = "V2"
-                    obser = vis2_data[i]
-                    err = e_vis2_data[i]
-                    if cond_uncer:
-                        if err / obser <= rel_max * 1e-2:
-                            obs.append([tmp, typ, obser, err])
-                        else:
-                            pass
-                    else:
-                        obs.append([tmp, typ, obser, err])
-                else:
-                    pass
-    N_v2_rest = len(obs)
-
-    for i in range(ncp * nwl):
-        if flag_CP[i]:
-            pass
-        else:
-            if not cond_wl:
-                tmp = [
-                    u1_data[i],
-                    u2_data[i],
-                    (u1_data[i] + u2_data[i]),
-                    v1_data[i],
-                    v2_data[i],
-                    (v1_data[i] + v2_data[i]),
-                    wl_data_cp[i],
-                ]
-                typ = "CP"
-                obser = cp_data[i]
-                err = e_cp_data[i]
-                if cond_uncer:
-                    if err / obser <= rel_max * 1e-2:
-                        obs.append([tmp, typ, obser, err])
-                    else:
-                        pass
-                else:
-                    obs.append([tmp, typ, obser, err])
-            else:
-                if (wl_data_cp[i] >= wl_min * 1e-6) & (wl_data_cp[i] <= wl_max * 1e-6):
-                    tmp = [
-                        u1_data[i],
-                        u2_data[i],
-                        (u1_data[i] + u2_data[i]),
-                        v1_data[i],
-                        v2_data[i],
-                        (v1_data[i] + v2_data[i]),
-                        wl_data_cp[i],
-                    ]
-                    typ = "CP"
-                    obser = cp_data[i]
-                    err = e_cp_data[i]
-                    if cond_uncer:
-                        if err / obser <= rel_max * 1e-2:
-                            obs.append([tmp, typ, obser, err])
-                        else:
-                            pass
-                    else:
-                        obs.append([tmp, typ, obser, err])
-                else:
-                    pass
-
-    N_cp_rest = len(obs) - N_v2_rest
-
-    Obs = np.array(obs)
-
-    if verbose:
-        print(
-            "\nTotal # of data points: %i (%i V2, %i CP)"
-            % (len(Obs), N_v2_rest, N_cp_rest)
-        )
-        if use_flag:
-            print("-> Flag in oifits files used.")
-        if cond_wl:
-            print(
-                r"-> Restriction on wavelenght: %2.2f < %s < %2.2f µm"
-                % (wl_min, chr(955), wl_max)
-            )
-        if cond_uncer:
-            print(fr"-> Restriction on uncertainties: {chr(949)} < {rel_max:2.1f} %")
-
-    return Obs
 
 
 def _normalize_err_obs(obs, verbose=False):
@@ -633,14 +399,13 @@ def _normalize_err_obs(obs, verbose=False):
 
 
 def compute_chi2_curve(
-    obs,
+    data,
     name_param,
     params,
     array_params,
     fitOnly,
     normalizeErrors=False,
-    fitCP=True,
-    onlyCP=False,
+    tobefit=None,
     ymin=0,
     ymax=3,
 ):
@@ -674,21 +439,16 @@ def compute_chi2_curve(
     `errors_chi2` {float}:
         Computed errors using the chi2 curve at the position of the chi2_r.min() + 1.
     """
-
     fit = smartfit(
-        obs,
+        data,
         params,
         normalizeErrors=normalizeErrors,
-        fitCP=fitCP,
-        onlyCP=onlyCP,
+        tobefit=tobefit,
         fitOnly=fitOnly,
         ftol=1e-8,
         epsfcn=1e-6,
-        multiproc=False,
         verbose=True,
     )
-
-    # fit_chi2 = fit['chi2']
     fit_theta = fit["best"][name_param]
     fit_e_theta = fit["uncer"][name_param]
 
@@ -697,21 +457,20 @@ def compute_chi2_curve(
     for pr in tqdm(array_params, desc="Chi2 curve (%s)" % name_param, ncols=100):
         params[name_param] = pr
         lfits = smartfit(
-            obs,
+            data,
             params,
             normalizeErrors=False,
-            fitCP=fitCP,
-            onlyCP=onlyCP,
+            tobefit=tobefit,
             fitOnly=fitOnly,
             ftol=1e-8,
             epsfcn=1e-6,
-            multiproc=False,
             verbose=False,
         )
         l_chi2r.append(lfits["chi2"])
 
     n_freedom = len(fitOnly)
-    n_pts = len(obs)
+
+    n_pts = oimalib.get_stat_data(data)
 
     l_chi2r = np.array(l_chi2r)
     l_chi2 = np.array(l_chi2r) * (n_pts - (n_freedom - 1))
@@ -735,8 +494,6 @@ def compute_chi2_curve(
         right_res = right_curve(chi2r_m + 1)
         dr1_r = abs(fitted_param - left_res)
         dr2_r = abs(fitted_param - right_res)
-        # dr1_r, dig = round_sci_digit(dr1_r)
-        # dr2_r = round_sci_digit(dr2_r)[0]
         fitted_param = float(np.round(fitted_param, 2))
         dr1_r = float(np.round(dr1_r, 2))
         dr2_r = float(np.round(dr2_r, 2))
@@ -749,9 +506,6 @@ def compute_chi2_curve(
     dr2_r = round_sci_digit(dr2_r)[0]
 
     errors_chi2 = np.mean([dr1_r, dr2_r])
-
-    # fit_e_theta, scidigit = round_sci_digit(fit_e_theta)
-    # fit_theta = float(np.round(fit_theta, 3))
 
     plt.figure()
     plt.plot(
@@ -805,7 +559,6 @@ def smartfit(
     scale_err=1,
     verbose=False,
     tobefit=None,
-    fast=True,
 ):
     """
     Perform the fit the observable in `tobefit` contained in data list (or class).
@@ -824,9 +577,9 @@ def smartfit(
     normalizeErrors: {boolean}
         If True, give the same weight for each observables (even if only few CP compare to V2).
     """
-    first_guess["fitted"] = tobefit
     if tobefit is None:
         tobefit = ["CP", "V2"]
+    first_guess["fitted"] = tobefit
     # -- avoid fitting string parameters
     tmp = list(filter(lambda x: isinstance(first_guess[x], str), first_guess.keys()))
 
@@ -845,18 +598,13 @@ def smartfit(
         except Exception:
             pass
 
-    if fast:
-        M = model_standard_fast
-        obs = np.concatenate([oimalib.format_obs(x) for x in data])
-        save_obs = obs.copy()
-        obs = []
-        for o in save_obs:
-            if o[1] in tobefit:
-                obs.append(o)
-        obs = np.array(obs)
-    else:
-        M = model_standard
-        obs = np.array(data, dtype=object)
+    obs = np.concatenate([oimalib.format_obs(x) for x in data])
+    save_obs = obs.copy()
+    obs = []
+    for o in save_obs:
+        if o[1] in tobefit:
+            obs.append(o)
+    obs = np.array(obs)
 
     errs = [o[-1] for o in obs]
     if normalizeErrors:
@@ -864,8 +612,15 @@ def smartfit(
 
     Y = [o[2] for o in obs]
 
+    npts = len(Y)
+
+    npts_good_check = get_stat_data(data, verbose=False)
+    if npts_good_check != npts:
+        print("Npts data = %i (should be %i)" % (npts, npts_good_check))
+        # return None
+
     lfit = leastsqFit(
-        M,
+        model_standard,
         data,
         first_guess,
         Y,
@@ -949,6 +704,10 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
     e_dvis_data = data.e_dvis.flatten()
     flag_dvis = data.flag_dvis.flatten()
 
+    dphi_data = data.dphi.flatten()
+    e_dphi_data = data.e_dphi.flatten()
+    flag_dphi = data.flag_dvis.flatten()
+
     cp_data = data.cp.flatten()
     e_cp_data = data.e_cp.flatten()
     flag_CP = data.flag_cp.flatten()
@@ -960,6 +719,7 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
         flag_V2 = [False] * len(vis2_data)
         flag_CP = [False] * len(cp_data)
         flag_dvis = [False] * len(dvis_data)
+        flag_dphi = [False] * len(dphi_data)
 
     uv = _compute_uvcoord(data)
 
@@ -980,11 +740,20 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
     for i in range(nbl * nwl):
         if not flag_dvis[i]:
             tmp = [uv.u[i], uv.v[i], wl_data[i]]
-            typ = "V"
+            typ = "dvis"
             obser = dvis_data[i]
             err = e_dvis_data[i]
             obs.append([tmp, typ, obser, err])
     N_vis = len(obs) - N_v2
+
+    for i in range(nbl * nwl):
+        if not flag_dphi[i]:
+            tmp = [uv.u[i], uv.v[i], wl_data[i]]
+            typ = "dphi"
+            obser = dphi_data[i]
+            err = e_dphi_data[i]
+            obs.append([tmp, typ, obser, err])
+    N_phi = len(obs) - N_v2 - N_vis
 
     for i in range(ncp * nwl):
         if not flag_CP[i]:
@@ -1002,19 +771,15 @@ def format_obs(data, use_flag=True, input_rad=False, verbose=False):
             err = e_cp_data[i]
             if ~np.isnan(obser) | ~np.isnan(err):
                 obs.append([tmp, typ, obser, err])
-    N_cp = len(obs) - N_v2 - N_vis
-
+    N_cp = len(obs) - N_v2 - N_vis - N_phi
     Obs = np.array(obs, dtype=object)
-
     if verbose:
         print("\nTotal # of data points: %i (%i V2, %i CP)" % (len(Obs), N_v2, N_cp))
     return Obs
 
 
 # MCMC estimation of uncertainties and refined parameter estimates
-
-
-def _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit, fast=False):
+def _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit):
     """Compute model for mcmc purpose changing only the parameters from `fitOnly`.
 
     Parameters:
@@ -1038,13 +803,8 @@ def _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit, fast=False):
     """
     for i, p in enumerate(fitOnly):
         param[p] = p_mcmc[i]
-
-    if fast:
-        param["fitted"] = tobefit
-        M = model_standard_fast
-    else:
-        M = model_standard
-    model = M(data, param)
+    param["fitted"] = tobefit
+    model = model_standard(data, param)
     return np.array(model)
 
 
@@ -1056,7 +816,7 @@ def log_prior(param, prior, fitOnly):
     return 0
 
 
-def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fast=False):
+def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None):
     """Compute the likelihood estimation between the model (represented by param
     and only for fitOnly parameters) and the data (obs).
 
@@ -1074,7 +834,7 @@ def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fast=False):
     `fitOnly` {list, str}:
         List of parameters to be fit (smartfit LM or MCMC).
     """
-    model = _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit, fast=fast)
+    model = _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit)
 
     y = obs[:, 2]
     e_y = obs[:, 3]
@@ -1084,15 +844,13 @@ def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fast=False):
         np.sum((y - model) ** 2 * inv_sigma2 - np.log(inv_sigma2.astype(float)))
     )
 
-    # res = -0.5 * np.sum((y - model) ** 2 / e_y ** 2)
-
     if np.isnan(res):
         return -np.inf
     else:
         return res
 
 
-def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, fast=False, obs=None):
+def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, obs=None):
     """Similar to log_probability() but including the prior restrictions.
 
     Parameters:
@@ -1115,9 +873,7 @@ def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, fast=False, ob
     lp = log_prior(p_mcmc, prior, fitOnly)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + log_likelihood(
-        p_mcmc, data, param, fitOnly, tobefit, fast=fast, obs=obs
-    )
+    return lp + log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=obs)
 
 
 def neg_like_prob(*args):
@@ -1174,7 +930,6 @@ def mcmcfit(
     plot_corner=False,
     burnin=50,
     tobefit=None,
-    fast=False,
 ):
     """ """
     ndim = len(fitOnly)
@@ -1189,10 +944,7 @@ def mcmcfit(
             obs.append(o)
     obs = np.array(obs)
 
-    if fast:
-        args = (data, first_guess, fitOnly, prior, tobefit, fast, obs)
-    else:
-        args = (obs, first_guess, fitOnly, prior, tobefit, fast, obs)
+    args = (data, first_guess, fitOnly, prior, tobefit, obs)
 
     initial_mcmc = [first_guess[p] for p in fitOnly]
     if guess_likehood:

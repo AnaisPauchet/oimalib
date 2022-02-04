@@ -34,3 +34,13 @@ def example_oifits_rmat(global_datadir):
 @pytest.fixture()
 def example_oifits_rgrav(global_datadir):
     return global_datadir / "example_GRAVITY_real.fits"
+
+
+@pytest.fixture()
+def example_model(global_datadir):
+    return global_datadir / "example_model_chromatic.fits"
+
+
+@pytest.fixture()
+def example_model_nochromatic(global_datadir):
+    return global_datadir / "example_model_nochromatic.fits"
