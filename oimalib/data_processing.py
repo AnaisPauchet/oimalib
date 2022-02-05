@@ -120,9 +120,7 @@ def _select_data_v2(
             )
         except TypeError:
             print("wl_bounds is None, please give wavelength limits (e.g.: [2, 3])")
-
     cond_v2 = sel_flag | sel_err | sel_wl
-
     return cond_v2
 
 
@@ -133,7 +131,6 @@ def _select_data_cp(
     cond_uncer=False,
     cond_wl=False,
     wl_bounds=None,
-    rel_max=None,
 ):
     """Select data CP using different criteria (errors, wavelenght, flag)."""
     nwl = len(data.wl)
@@ -143,11 +140,9 @@ def _select_data_cp(
     if use_flag:
         sel_flag = data.flag_cp[i]
 
-    # cp = data.cp[i, :]
     e_cp = data.e_cp[i]
     if cond_uncer:
-        # rel_err = abs(e_cp / cp)
-        sel_err = e_cp < 0  # np.invert((rel_err <= rel_max * 1e-2))
+        sel_err = e_cp < 0
 
     if cond_wl:
         try:
@@ -271,7 +266,7 @@ def select_data(
 
     output = list_data_sel
     if nfile == 1:
-        output = list_data[0]
+        output = list_data_sel[0]
     return output
 
 
