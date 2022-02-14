@@ -224,7 +224,6 @@ def select_data(
     param_select = {
         "use_flag": use_flag,
         "cond_uncer": cond_uncer,
-        "rel_max": rel_max,
         "cond_wl": cond_wl,
         "wl_bounds": wave_lim,
     }
@@ -237,7 +236,7 @@ def select_data(
         nbl = data.vis2.shape[0]
         ncp = data.cp.shape[0]
         for i in range(nbl):
-            new_flag_v2 = _select_data_v2(i, data, **param_select)
+            new_flag_v2 = _select_data_v2(i, data, rel_max=rel_max, **param_select)
             data.flag_vis2[i] = new_flag_v2
             old_err = data.e_vis2[i]
             if replace_err:
