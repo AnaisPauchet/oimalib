@@ -14,7 +14,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.colors import PowerNorm
 from scipy.constants import c as c_light
-from scipy.interpolate.interpolate import interp1d
+from scipy.interpolate import interp1d
 from termcolor import cprint
 
 from oimalib.complex_models import visGaussianDisk
