@@ -214,7 +214,10 @@ def wtmn(values, weights, axis=0, cons=False):
     """
 
     values[np.isnan(values)] = 0.0
-    weights[np.isnan(values)] = 0.0
+    try:
+        weights[np.isnan(values)] = 0.0
+    except TypeError:
+        weights = np.ones_like(values)
 
     mn = np.average(values, weights=weights, axis=axis)
 

@@ -375,6 +375,7 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
     for d in list_data:
         l_hour.append((d.info.mjd - mjd0) * 24)
     l_hour = np.array(l_hour)
+    print("Observation time of the listed dataset:\n", l_hour)
 
     if wave_lim is None:
         wave_lim = [0, 20]
