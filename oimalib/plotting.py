@@ -7,6 +7,7 @@ OIMALIB: Optical Interferometry Modelisation and Analysis Library
 Set of function to plot oi data, u-v plan, models, etc.
 -----------------------------------------------------------------
 """
+import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import pkg_resources
@@ -898,7 +899,7 @@ def plot_complex_model(
     fft2D = grid.fft
     cube = grid.cube
 
-    im_phase = abs(np.angle(fft2D)[i_sp])[:, ::-1]
+    im_phase = np.rad2deg(abs(np.angle(fft2D)[i_sp])[:, ::-1])
     im_amp = np.abs(fft2D)[i_sp][:, ::-1]
     im_model = cube[i_sp]
 
@@ -931,14 +932,14 @@ def plot_complex_model(
         _plot_uvdata_coord(data, ax=axs[1], rotation=rotation)
 
     if unit_vis == "lambda":
-        plt.xlabel(r"U [M$\lambda$]")
-        plt.ylabel(r"V [M$\lambda$]")
+        axs[1].set_xlabel(r"U [M$\lambda$]")
+        axs[1].set_ylabel(r"V [M$\lambda$]")
     else:
-        plt.xlabel(r"U [arcsec$^{-1}$]")
-        plt.ylabel(r"V [arcsec$^{-1}$]")
+        axs[1].set_xlabel(r"U [arcsec$^{-1}$]")
+        axs[1].set_ylabel(r"V [arcsec$^{-1}$]")
 
     # plt.subplot(1, 3, 3)
-    axs[2].set_title("Phase [rad]")
+    axs[2].set_title("Phase [deg]")
     axs[2].imshow(
         im_phase,
         norm=PowerNorm(1),
@@ -957,7 +958,30 @@ def plot_complex_model(
     axs[2].axis(ax_vis)
     plt.tight_layout()
     plt.show(block=False)
-    return fig
+    return fig, axs
+
+
+def symmetrical_colormap(cmap_settings, new_name=None):
+    """This function take a colormap and create a new one, as the concatenation of itself by a symmetrical fold."""
+    # get the colormap
+    cmap = plt.cm.get_cmap(*cmap_settings)
+    if not new_name:
+        new_name = "sym_" + cmap_settings[0]  # ex: 'sym_Blues'
+
+    # this defined the roughness of the colormap, 128 fine
+    n = 128
+
+    # get the list of color from colormap
+    colors_r = cmap(np.linspace(0, 1, n))  # take the standard colormap # 'right-part'
+    colors_l = colors_r[
+        ::-1
+    ]  # take the first list of color and flip the order # "left-part"
+
+    # combine them and build a new colormap
+    colors = np.vstack((colors_l, colors_r))
+    mymap = mcolors.LinearSegmentedColormap.from_list(new_name, colors)
+
+    return mymap
 
 
 def plot_image_model(
@@ -1111,7 +1135,8 @@ def plot_image_model(
         left=0.05, bottom=0.05, right=0.99, top=1, wspace=0.18, hspace=0.25
     )
     plt.subplot(1, 4, 1)
-    plt.imshow(im_amp ** 2, origin="lower", extent=extent_vis)
+    mymap = symmetrical_colormap(("gist_earth", None))
+    plt.imshow(im_amp ** 2, origin="lower", extent=extent_vis, cmap="gist_earth")
     if obs is not None:
         save_obs = obs.copy()
         cond = save_obs[:, 1] == "V2"
@@ -1129,7 +1154,7 @@ def plot_image_model(
     plt.ylabel("Sp. Freq [cycles/arcsec]")
     plt.title("Amplitude visibility", fontsize=12, color="grey", weight="bold")
     plt.subplot(1, 4, 2)
-    plt.imshow(im_phi, origin="lower", extent=extent_vis)
+    plt.imshow(im_phi, origin="lower", extent=extent_vis, cmap=mymap)
     if obs is not None:
         save_obs = obs.copy()
         cond = save_obs[:, 1] == "V2"
@@ -1310,8 +1335,11 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
     cond_wl = (wave >= bounds[0]) & (wave <= bounds[1])
     cond_wl2 = (wl >= bounds[0]) & (wl <= bounds[1])
 
-    flux = flux[cond_wl]
     wave = wave[cond_wl]
+    try:
+        flux = flux[cond_wl]
+    except IndexError:
+        flux = [np.nan] * len(wave)
 
     dphi = data.dphi
     dvis = data.dvis
@@ -1563,3 +1591,89 @@ def plot_mcmc_results(
     g.map_lower(_results_corner_sns, color=color)
     plt.subplots_adjust(wspace=0.05, hspace=0.05)
     return g
+
+
+def plot_diffobs_model(dobs, data, dobs_full=None, speed=False):
+    wl0 = dobs.p_line
+    if speed:
+        wave3 = ((dobs.wl - wl0) / wl0) * c_light / 1e3
+        if dobs_full is not None:
+            wave4 = ((dobs_full.wl - wl0) / wl0) * c_light / 1e3
+    else:
+        wave3 = dobs.wl
+        if dobs_full is not None:
+            wave4 = dobs_full.wl
+
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+    fig = plt.figure(figsize=(6, 6))
+    plt.subplot(3, 1, 1)
+    # plt.plot(wl_plot, flux_plot, "g*", zorder=6, ms=5)
+    plt.scatter(
+        wave3,
+        dobs.flux,
+        s=40,
+        c=wave3,
+        cmap="coolwarm",
+        marker="s",
+        linewidth=0.5,
+        edgecolor="k",
+        zorder=3,
+    )
+    plt.plot(
+        wave4,
+        dobs_full.flux,
+        lw=1,
+    )
+    plt.ylabel("Norm. Flux")
+    frame1 = plt.gca()
+    frame1.tick_params(axis="x", colors="w")
+
+    plt.subplot(3, 1, 2)
+    frame2 = plt.gca()
+    # plt.plot(wl_plot, dvis_plot, "g*", zorder=6, ms=5)
+    plt.scatter(
+        wave3,
+        dobs.dvis,
+        s=40,
+        c=wave3,
+        cmap="coolwarm",
+        marker="s",
+        linewidth=0.5,
+        edgecolor="k",
+        zorder=3,
+    )
+    plt.plot(wave4, dobs_full.dvis, lw=1)
+    props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
+    plt.text(
+        0.05,
+        0.3,
+        "%s (%i m)" % (data.blname[dobs.ibl], data.bl[dobs.ibl]),
+        transform=frame2.transAxes,
+        fontsize=13,
+        verticalalignment="top",
+        bbox=props,
+    )
+    plt.ylabel("Diff. Vis.")
+    frame2.tick_params(axis="x", colors="w")
+    plt.subplot(3, 1, 3)
+    # plt.plot(wl_plot, dphi_plot, "g*", zorder=6, ms=5)
+    plt.scatter(
+        wave3,
+        dobs.dphi,
+        s=40,
+        c=wave3,
+        cmap="coolwarm",
+        marker="s",
+        linewidth=0.5,
+        edgecolor="k",
+        zorder=3,
+    )
+    plt.plot(wave4, dobs_full.dphi, lw=1)
+    plt.ylabel("Diff. Phase [deg]")
+    if speed:
+        plt.xlabel("Velocity [km/s]")
+    else:
+        plt.xlabel("Wavelengths [µm]")
+    plt.subplots_adjust(left=0.17, right=0.98, top=0.99)
+    return fig
