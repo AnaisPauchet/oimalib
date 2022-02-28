@@ -308,6 +308,7 @@ def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=No
             l_e_dvis,
             l_e_dphi,
         ) = binning_tab(data, nbox=nbox, force=force, rel_err=rel_err)
+
         data_bin = data.copy()
         data_bin.wl = l_wl
         data_bin.vis2 = l_vis2
@@ -407,7 +408,7 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
         n_data = len(file_to_be_combined)
 
     wave = list_data[0].wl * 1e6
-    cond_wl = (wave >= wave_lim[0]) & (wave <= wave_lim[1])
+    cond_wl = (wave >= wave_lim[0]) & (wave < wave_lim[1])
     wave = wave[cond_wl]
 
     n_wave = len(wave)
