@@ -156,6 +156,7 @@ def visBinary(Utable, Vtable, Lambda, param):
 
     if dm < 0:
         return np.array([np.nan] * len(Lambda))
+
     f1 = 1
     f2 = f1 / (2.512 ** dm)
     ftot = f1 + f2
@@ -710,13 +711,13 @@ def visThickEllipticalRing(Utable, Vtable, Lambda, param):
     Params:
     -------
     majorAxis: {float}
-        Major axis of the disk [rad],\n
-    minorAxis: {float}
-        Minor axis of the disk [rad],\n
+        Major axis of the disk [mas],\n
+    incl: {float}
+        Inclination of the disk [deg],\n
     angle: {float}
-        Orientation of the disk [rad],\n
-    thickness: {float}
-        Thickness of the ring [rad],\n
+        Position angle of the disk [deg],\n
+    w: {float}
+        Thickness of the ring [mas],\n
     x0, y0: {float}
         Shift along x and y position [rad].
     """
@@ -726,8 +727,9 @@ def visThickEllipticalRing(Utable, Vtable, Lambda, param):
     minorAxis = elong * majorAxis
     angle = np.deg2rad(param["pa"])
     thickness = mas2rad(param["w"])
-    x0 = param["x0"]
-    y0 = param["y0"]
+
+    x0 = param.get("x0", 0)
+    y0 = param.get("y0", 0)
 
     u = Utable / Lambda
     v = Vtable / Lambda
@@ -1604,7 +1606,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
             ms=5,
             markeredgecolor="k",
             markeredgewidth=0.5,
-            label=fr"$\Sigma F_{{{wl_m:2.1f}µm}}$ = {P_dust:2.1f} Jy",
+            # label=f"$\Sigma F_{{{wl_m:2.1f}µm}}$ = {P_dust:2.1f} Jy",
         )
         plt.loglog(
             wl_m,
@@ -1615,7 +1617,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
             ms=5,
             markeredgecolor="k",
             markeredgewidth=0.5,
-            label=fr"$\Sigma F_{{*, {wl_m:2.1f}µm}}$ = {P_star:2.1f} Jy",
+            # label=f"$\Sigma F_{{*, {wl_m:2.1f}µm}}$ = {P_star:2.1f} Jy",
         )
         plt.xlabel("Wavelength [µm]")
         plt.ylabel("SED [Jy]")
@@ -1665,6 +1667,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     param["x0"] = rad2mas(param_star_O["x0"]) * (2 / 3.0)
     param["y0"] = rad2mas(param_star_O["y0"]) * (2 / 3.0)
 
+    thickness = param["thickness"]
     Vpwhl = visSpiralTemp(
         Utable,
         Vtable,
@@ -1674,6 +1677,8 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         spec=sed_pwhl_wl,
         verbose=verbose,
         display=expert_plot,
+    ) * visGaussianDisk(
+        Utable, Vtable, Lambda, {"fwhm": thickness, "x0": 0.0, "y0": 0.0}
     )
 
     vis_OB = p_OB * Fstar * visPointSource(Utable, Vtable, wl, param_star_O)
