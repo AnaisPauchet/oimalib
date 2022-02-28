@@ -18,8 +18,8 @@ from munch import munchify as dict2class
 from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 from scipy.interpolate import RegularGridInterpolator as regip
+from scipy.ndimage import gaussian_filter1d
 from scipy.ndimage import rotate
-from scipy.ndimage.filters import gaussian_filter1d
 from termcolor import cprint
 
 from oimalib.fitting import check_params_model
