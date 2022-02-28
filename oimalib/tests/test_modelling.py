@@ -64,9 +64,9 @@ def test_compute_model_grid_user(example_model_nochromatic, example_oifits_rmat)
     ncp = len(d.cp)
     nbl = len(d.vis2)
     nwl = len(d.wl)
-    assert np.shape(mod_v2_grid)[0] == nbl
-    assert np.shape(mod_cp_grid)[0] == ncp
-    assert np.shape(mod_cp_grid)[1] == nwl
+    assert np.shape(mod_v2_grid)[1] == nbl
+    assert np.shape(mod_cp_grid)[1] == ncp
+    assert np.shape(mod_cp_grid)[2] == nwl
 
 
 def test_model_disk(example_oifits_rmat):
@@ -312,6 +312,7 @@ def test_model_pwhl(example_oifits_rmat):
     param["r_nuc"] = 10  # [mas]
     param["gap_factor"] = 1.5  # 1.5 in T is 10 is flux (roughtly)
     param["nelts"] = 200
+    param["thickness"] = 1
 
     # Orientation in the sky
     param["angle_0"] = 0

@@ -89,7 +89,7 @@ def test_smartfit_hr(example_oifits_rgrav):
     fitOnly = ["dm", "sep", "pa"]
     param = {"model": "binary", "x0": 0, "y0": 0, "sep": 3, "pa": 45, "dm": 3}
     tobefit = ["V2", "CP", "dphi", "dvis"]
-    fit = oimalib.smartfit(data, param, tobefit=tobefit, fitOnly=fitOnly)
+    fit = oimalib.smartfit(data, param, tobefit=tobefit, fitOnly=fitOnly, verbose=True)
     assert isinstance(fit, dict)
 
 
