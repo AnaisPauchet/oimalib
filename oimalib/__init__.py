@@ -1,5 +1,6 @@
 from .data_processing import select_data
 from .data_processing import spectral_bin_data
+from .data_processing import temporal_bin_data
 from .fitting import format_obs
 from .fitting import get_mcmc_results
 from .fitting import get_stat_data

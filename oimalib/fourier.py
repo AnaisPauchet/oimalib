@@ -7,7 +7,7 @@ import numpy as np
 
 
 def shiftFourier(Utable, Vtable, wl, C_in, x0, y0):
-    """Shift the image (apply a phasor in Fourier space."""
+    """Shift the image (apply a phasor in Fourier space)."""
     u = Utable / wl
     v = Vtable / wl
     C_out = C_in * np.exp(-2j * np.pi * (u * x0 + v * y0))

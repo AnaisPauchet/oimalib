@@ -13,6 +13,7 @@ from itertools import islice
 import numpy as np
 from astropy import constants as cs
 from matplotlib import pyplot as plt
+from munch import munchify
 from uncertainties import umath
 
 
@@ -214,7 +215,10 @@ def wtmn(values, weights, axis=0, cons=False):
     """
 
     values[np.isnan(values)] = 0.0
-    weights[np.isnan(values)] = 0.0
+    try:
+        weights[np.isnan(values)] = 0.0
+    except TypeError:
+        weights = np.ones_like(values)
 
     mn = np.average(values, weights=weights, axis=axis)
 
@@ -360,3 +364,70 @@ def computeBinaryRatio(param, wl):
     p_OB = f1_0 / ftot_0
     p_WR = f2_0 / ftot_0
     return p_OB, p_WR
+
+
+def get_dvis(data, bounds=None):
+    """
+    Get differential observables (visibility amplitude and phase). By default,
+    the observable are extracted around brg (2.14-2.19 µm).
+
+    Parameters:
+    -----------
+
+    `data` {class}:
+        Interferometric data from load()\n
+    `bounds` {list}:
+        Wavelengths range (by default around Br Gamma line 2.166 µm, [2.14, 2.19]),\n
+    `line` {float}:
+        Vertical line reference to be plotted (by default, Br Gamma line 2.166 µm)\n
+    """
+    if bounds is None:
+        bounds = [2.14, 2.19]
+
+    if len(data.flux.shape) == 1:
+        spectrum = data.flux
+    else:
+        spectrum = data.flux.mean(axis=0)
+
+    wl = data.wl * 1e6
+
+    try:
+        flux, wave = substract_run_med(spectrum, wl, div=True)
+    except IndexError:
+        flux, wave = spectrum, wl
+
+    cond_wl = (wave >= bounds[0]) & (wave <= bounds[1])
+    cond_wl2 = (wl >= bounds[0]) & (wl <= bounds[1])
+
+    flux = flux[cond_wl]
+    wave = wave[cond_wl]
+
+    dphi = data.dphi
+    dvis = data.dvis
+    blname = data.blname
+    bl = data.bl
+
+    l_dvis, l_dphi, l_blname, l_bl = [], [], [], []
+    for i in range(dvis.shape[0]):
+        data_dvis = dvis[i][cond_wl2]
+        dvis_m = data_dvis[~np.isnan(data_dvis)].mean()
+        if not np.isnan(dvis_m):
+            l_dvis.append(data_dvis)
+            l_blname.append(blname[i])
+            l_bl.append(bl[i])
+
+    for i in range(dphi.shape[0]):
+        if np.diff(dphi[i][cond_wl2]).mean() != 0:
+            l_dphi.append(dphi[i][cond_wl2])
+
+    out = {
+        "wl": wave,
+        "flux": flux,
+        "dwl": wl[cond_wl2],
+        "dvis": l_dvis,
+        "dphi": l_dphi,
+        "blname": l_blname,
+        "bl": l_bl,
+    }
+
+    return munchify(out)

@@ -44,3 +44,23 @@ def example_model(global_datadir):
 @pytest.fixture()
 def example_model_nochromatic(global_datadir):
     return global_datadir / "example_model_nochromatic.fits"
+
+
+@pytest.fixture()
+def example_t1(global_datadir):
+    return global_datadir / "example_t1.fits"
+
+
+@pytest.fixture()
+def example_t2(global_datadir):
+    return global_datadir / "example_t2.fits"
+
+
+@pytest.fixture()
+def example_t3(global_datadir):
+    return global_datadir / "example_t3.fits"
+
+
+@pytest.fixture()
+def example_merge_ref(global_datadir):
+    return global_datadir / "example_merge_reference.fits"

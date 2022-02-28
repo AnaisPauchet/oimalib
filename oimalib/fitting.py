@@ -311,6 +311,7 @@ def get_stat_data(data, verbose=True):
 
 def model_standard(d, param):
     l_mod_cp, l_mod_cvis, l_mod_dvis = [], [], []
+    fitted = param["fitted"]
     for data in d:
         nbl = len(data.u)
         ncp = len(data.cp)
@@ -323,12 +324,13 @@ def model_standard(d, param):
                 u, v, wl = data.u[i], data.v[i], data.wl[~flag]
                 mod_cvis.append(model_target(u, v, wl, param))
         mod_dvis = []
-        for i in range(nbl):
-            dvis = data.vis2[i]
-            flag = data.flag_dvis[i]
-            if len(vis2[~np.isnan(dvis)]) != 0:
-                u, v, wl = data.u[i], data.v[i], data.wl[~flag]
-                mod_dvis.append(model_target(u, v, wl, param))
+        if "dvis" in fitted:
+            for i in range(nbl):
+                dvis = data.vis2[i]
+                flag = data.flag_dvis[i]
+                if len(vis2[~np.isnan(dvis)]) != 0:
+                    u, v, wl = data.u[i], data.v[i], data.wl[~flag]
+                    mod_dvis.append(model_target(u, v, wl, param))
         mod_cp = []
         for i in range(ncp):
             cp = data.cp[i]
@@ -339,21 +341,23 @@ def model_standard(d, param):
                 wl = data.wl[~flag]
                 X = [u1, u2, u3, v1, v2, v3, wl]
                 tmp = comput_CP(X, param, model_target)
-                mod_cp.append(tmp)
-        l_mod_cp.append(mod_cp)
-        l_mod_cvis.append(mod_cvis)
-        l_mod_dvis.append(mod_dvis)
+                if len(tmp) != 0:
+                    mod_cp.append(tmp)
+        l_mod_cp.append(np.array(mod_cp, dtype=object))
+        l_mod_cvis.append(np.array(mod_cvis, dtype=object))
+        l_mod_dvis.append(np.array(mod_dvis, dtype=object))
     l_mod_cp = np.array(l_mod_cp, dtype=object)
     l_mod_cvis = np.array(l_mod_cvis, dtype=object)
     l_mod_dvis = np.array(l_mod_dvis, dtype=object)
-    fitted = param["fitted"]
+
     model_fast = []
     for i in range(len(l_mod_cvis)):
         cvis = l_mod_cvis[i]
         cvis_flat = np.hstack(cvis.flatten())
-        dvis = l_mod_dvis[i]
-        if len(dvis[0]) > 1:
-            dvis_flat = np.hstack(dvis.flatten())
+        if "dvis" in fitted:
+            dvis = l_mod_dvis[i]
+            if len(dvis[0]) > 1:
+                dvis_flat = np.hstack(dvis.flatten())
         cp = l_mod_cp[i]
         cp_flat = np.hstack(cp.flatten())
         if "V2" in fitted:

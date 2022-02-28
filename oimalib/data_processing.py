@@ -120,9 +120,7 @@ def _select_data_v2(
             )
         except TypeError:
             print("wl_bounds is None, please give wavelength limits (e.g.: [2, 3])")
-
     cond_v2 = sel_flag | sel_err | sel_wl
-
     return cond_v2
 
 
@@ -133,7 +131,6 @@ def _select_data_cp(
     cond_uncer=False,
     cond_wl=False,
     wl_bounds=None,
-    rel_max=None,
 ):
     """Select data CP using different criteria (errors, wavelenght, flag)."""
     nwl = len(data.wl)
@@ -143,11 +140,9 @@ def _select_data_cp(
     if use_flag:
         sel_flag = data.flag_cp[i]
 
-    # cp = data.cp[i, :]
     e_cp = data.e_cp[i]
     if cond_uncer:
-        # rel_err = abs(e_cp / cp)
-        sel_err = e_cp < 0  # np.invert((rel_err <= rel_max * 1e-2))
+        sel_err = e_cp < 0
 
     if cond_wl:
         try:
@@ -229,7 +224,6 @@ def select_data(
     param_select = {
         "use_flag": use_flag,
         "cond_uncer": cond_uncer,
-        "rel_max": rel_max,
         "cond_wl": cond_wl,
         "wl_bounds": wave_lim,
     }
@@ -242,7 +236,7 @@ def select_data(
         nbl = data.vis2.shape[0]
         ncp = data.cp.shape[0]
         for i in range(nbl):
-            new_flag_v2 = _select_data_v2(i, data, **param_select)
+            new_flag_v2 = _select_data_v2(i, data, rel_max=rel_max, **param_select)
             data.flag_vis2[i] = new_flag_v2
             old_err = data.e_vis2[i]
             if replace_err:
@@ -271,7 +265,7 @@ def select_data(
 
     output = list_data_sel
     if nfile == 1:
-        output = list_data[0]
+        output = list_data_sel[0]
     return output
 
 
@@ -314,6 +308,7 @@ def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=No
             l_e_dvis,
             l_e_dphi,
         ) = binning_tab(data, nbox=nbox, force=force, rel_err=rel_err)
+
         data_bin = data.copy()
         data_bin.wl = l_wl
         data_bin.vis2 = l_vis2
@@ -381,6 +376,7 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
     for d in list_data:
         l_hour.append((d.info.mjd - mjd0) * 24)
     l_hour = np.array(l_hour)
+    print("Observation time of the listed dataset:\n", l_hour)
 
     if wave_lim is None:
         wave_lim = [0, 20]
@@ -412,7 +408,7 @@ def temporal_bin_data(list_data, wave_lim=None, time_lim=None, verbose=False):
         n_data = len(file_to_be_combined)
 
     wave = list_data[0].wl * 1e6
-    cond_wl = (wave >= wave_lim[0]) & (wave <= wave_lim[1])
+    cond_wl = (wave >= wave_lim[0]) & (wave < wave_lim[1])
     wave = wave[cond_wl]
 
     n_wave = len(wave)

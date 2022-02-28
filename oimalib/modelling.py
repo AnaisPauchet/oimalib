@@ -15,8 +15,10 @@ from pathlib import Path
 import numpy as np
 from astropy.io import fits
 from munch import munchify as dict2class
+from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 from scipy.interpolate import RegularGridInterpolator as regip
+from scipy.ndimage import gaussian_filter1d
 from scipy.ndimage import rotate
 from termcolor import cprint
 
@@ -42,7 +44,7 @@ def _print_info_model(wl_model, modelfile, fov, npix, s):
     cprint(title, "cyan")
     cprint("-" * len(title), "cyan")
     print(
-        "fov=%2.1f mas, npix=%i (%i padded), pix=%2.1f mas"
+        "fov=%2.2f mas, npix=%i (%i padded), pix=%2.3f mas"
         % (fov, npix, s[2], fov / npix)
     )
     if nwl == 1:
@@ -52,7 +54,8 @@ def _print_info_model(wl_model, modelfile, fov, npix, s):
         wl2 = wl_model[-1] * 1e6
         wl_step = np.diff(wl_model)[0] * 1e6
         cprint(
-            "nwl=%i (wl0=%2.1f, wlmax=%2.1f, step=%2.1f µm)" % (nwl, wl1, wl2, wl_step),
+            "nwl=%i (wl0=%2.3f, wlmax=%2.3f µm, step=%2.3f nm)"
+            % (nwl, wl1, wl2, wl_step * 1000.0),
             "green",
         )
     cprint("-" * len(title) + "\n", "cyan")
@@ -67,6 +70,9 @@ def model2grid(
     fliplr=False,
     pad_fact=2,
     method="linear",
+    i1=0,
+    i2=None,
+    light=False,
 ):
     """Compute grid class from model as fits file cube.
 
@@ -104,7 +110,13 @@ def model2grid(
 
     if wl_user is not None:
         wl0 = wl_user
-        n_wl = len(wl_user)
+        if type(wl_user) is float or np.float64:
+            n_wl = 1
+        elif type(wl_user) is list:
+            n_wl = len(wl_user)
+        else:
+            cprint("wl_user have a wrong format: need float or list.", "red")
+            return 0
     else:
         wl0 = hdr.get("CRVAL3", None)
         if wl0 is None:
@@ -120,7 +132,10 @@ def model2grid(
                     "Wavelenght not found: argument wl_user (%2.1f) is used)." % wl_user
                 )
 
-    wl0 = float(wl0)
+    try:
+        wl0 = float(wl0)
+    except TypeError:
+        pass
     npix = hdr["NAXIS1"]
 
     try:
@@ -149,7 +164,7 @@ def model2grid(
                 file=sys.stderr,
             )
             return None
-        pix_size = mas2rad(pix_user)
+        pix_size = mas2rad(pix_user) * scale
 
     fov = rad2mas(npix * pix_size)
 
@@ -163,10 +178,23 @@ def model2grid(
     if unit_wl != "m":
         wl_model *= 1e-6
 
-    padding = pad_fact * np.array([npix, npix])
-    image_input = hdu[0].data
+    if wl_user is not None:
+        wl_model = wl_user / 1e6
+
+    padding = pad_fact * np.array([npix // 2, npix // 2])
+    padding = padding.astype(int)
+    if len(hdu[0].data) != 1:
+        image_input = hdu[0].data[i1:i2]
+    else:
+        image_input = hdu[0].data
+
+    flux = []
+    for _ in image_input:
+        flux.append(_.sum())
+    flux = np.array(flux) / image_input[0].sum()
+
     axes_rot = (1, 2)
-    n_image = hdu[0].data.shape[0]
+    n_image = image_input.shape[0]
     if len(image_input.shape) == 2:
         image_input = image_input.reshape(
             [1, image_input.shape[0], image_input.shape[1]]
@@ -178,9 +206,7 @@ def model2grid(
     if fliplr:
         model_aligned = np.fliplr(model_aligned)
 
-    mod_pad = np.pad(
-        model_aligned, pad_width=((0, 0), padding, padding), mode="constant"
-    )
+    mod_pad = np.pad(model_aligned, pad_width=((0, 0), padding, padding), mode="edge")
 
     if mod_pad.shape[1] % 2 == 0:
         mod_pad = mod_pad[:, :-1, :-1]
@@ -190,7 +216,8 @@ def model2grid(
     s = np.shape(mod_pad)
 
     fft2D = np.fft.fftshift(
-        np.fft.fft2(np.fft.fftshift(mod_pad, axes=[2, 1]), axes=[-2, -1]), axes=[2, 1]
+        np.fft.fft2(np.fft.fftshift(mod_pad, axes=[2, 1]), axes=[-2, -1]),
+        axes=[2, 1],
     )
     maxi = np.max(np.abs(fft2D), axis=(1, 2))
 
@@ -201,8 +228,8 @@ def model2grid(
 
     _print_info_model(wl_model, modelfile, fov, npix, s)
     if n_wl == 1:
-        im3d_real = interp2d(freqVect, freqVect, fft2D.real.T, kind="cubic")
-        im3d_imag = interp2d(freqVect, freqVect, fft2D.imag.T, kind="cubic")
+        im3d_real = interp2d(freqVect, freqVect, fft2D.real, kind="cubic")
+        im3d_imag = interp2d(freqVect, freqVect, fft2D.imag, kind="cubic")
     else:
         if method == "linear":
             im3d_real = regip(
@@ -230,17 +257,28 @@ def model2grid(
         sign = np.sign(hdr["CDELT1"])
     except KeyError:
         sign = 1.0
-    grid = {
-        "real": im3d_real,
-        "imag": im3d_imag,
-        "sign": sign,
-        "wl": wl_model,
-        "freq": freqVect,
-        "fov": fov,
-        "cube": model_aligned,
-        "fft": fft2D,
-        "name": modelname,
-    }
+    if light:
+        grid = {
+            "real": im3d_real,
+            "imag": im3d_imag,
+            "sign": sign,
+            "pad_fact": pad_fact,
+            "flux": flux,
+        }
+    else:
+        grid = {
+            "real": im3d_real,
+            "imag": im3d_imag,
+            "sign": sign,
+            "wl": wl_model,
+            "freq": freqVect,
+            "fov": fov,
+            "cube": model_aligned,
+            "fft": fft2D,
+            "name": modelname,
+            "pad_fact": pad_fact,
+            "flux": flux,
+        }
     hdu.close()
     return dict2class(grid)
 
@@ -268,7 +306,10 @@ def _compute_grid_model_chromatic(data, grid, verbose=False):
                 x = grid.sign * um / wl
                 y = vm / wl
                 pts = (wl, x, y)
-                v2 = abs(greal(pts) + 1j * gimag(pts)) ** 2
+                if not data.flag_vis2[i][j]:
+                    v2 = abs(greal(pts) + 1j * gimag(pts)) ** 2
+                else:
+                    v2 = np.nan
                 mod_v2[i, j] = v2
 
         mod_cp = np.zeros([ncp, nwl])
@@ -283,11 +324,14 @@ def _compute_grid_model_chromatic(data, grid, verbose=False):
                 wl = data.wl[j]
                 u1m, u2m, u3m = u1 / wl, u2 / wl, u3 / wl
                 v1m, v2m, v3m = v1 / wl, v2 / wl, v3 / wl
-                cvis_1 = greal([wl, u1m, v1m]) + 1j * gimag([wl, u1m, v1m])
-                cvis_2 = greal([wl, u2m, v2m]) + 1j * gimag([wl, u2m, v2m])
-                cvis_3 = greal([wl, u3m, v3m]) + 1j * gimag([wl, u3m, v3m])
-                bispec = np.array(cvis_1) * np.array(cvis_2) * np.array(cvis_3)
-                cp = np.rad2deg(np.arctan2(bispec.imag, bispec.real))
+                if not data.flag_cp[i][j]:
+                    cvis_1 = greal([wl, u1m, v1m]) + 1j * gimag([wl, u1m, v1m])
+                    cvis_2 = greal([wl, u2m, v2m]) + 1j * gimag([wl, u2m, v2m])
+                    cvis_3 = greal([wl, u3m, v3m]) + 1j * gimag([wl, u3m, v3m])
+                    bispec = np.array(cvis_1) * np.array(cvis_2) * np.array(cvis_3)
+                    cp = np.rad2deg(np.arctan2(bispec.imag, bispec.real))
+                else:
+                    cp = np.nan
                 mod_cp[i, j] = cp
         l_mod_cp.append(mod_cp)
         l_mod_v2.append(mod_v2)
@@ -305,42 +349,52 @@ def _compute_grid_model_nochromatic(data, grid, verbose=False):
 
     greal, gimag = grid.real, grid.imag
 
-    mod_v2 = np.zeros([nbl, nwl])
-    for i in range(nbl):
-        um = grid.sign * data.u[i] / data.wl
-        vm = data.v[i] / data.wl
-        mod_v2[i] = [
-            abs(grid.real(um[j], vm[j])[0] + 1j * grid.imag(um[j], vm[j])[0]) ** 2
-            for j in range(nwl)
-        ]
+    if type(data) is not list:
+        l_data = [data]
+    else:
+        l_data = data
+    # start_time = time.time()
 
-    mod_cp = np.zeros([ncp, nwl])
-    for i in range(ncp):
-        u1, u2, u3 = (
-            grid.sign * data.u1[i],
-            grid.sign * data.u2[i],
-            grid.sign * data.u3[i],
-        )
-        v1, v2, v3 = data.v1[i], data.v2[i], data.v3[i]
-        u1m, u2m, u3m = u1 / data.wl, u2 / data.wl, u3 / data.wl
-        v1m, v2m, v3m = v1 / data.wl, v2 / data.wl, v3 / data.wl
-        greal, gimag = grid.real, grid.imag
-        cvis_1 = [
-            greal(u1m[i], v1m[i]) + 1j * gimag(u1m[i], v1m[i]) for i in range(nwl)
-        ]
-        cvis_2 = [
-            greal(u2m[i], v2m[i]) + 1j * gimag(u2m[i], v2m[i]) for i in range(nwl)
-        ]
-        cvis_3 = [
-            greal(u3m[i], v3m[i]) + 1j * gimag(u3m[i], v3m[i]) for i in range(nwl)
-        ]
-        bispec = np.array(cvis_1) * np.array(cvis_2) * np.array(cvis_3)
-        cp = np.rad2deg(np.arctan2(bispec.imag, bispec.real))
-        mod_cp[i] = np.squeeze(cp)
+    l_mod_v2, l_mod_cp = [], []
 
+    for data in l_data:
+        mod_v2 = np.zeros([nbl, nwl])
+        for i in range(nbl):
+            um = grid.sign * data.u[i] / data.wl
+            vm = data.v[i] / data.wl
+            mod_v2[i] = [
+                abs(grid.real(um[j], vm[j])[0] + 1j * grid.imag(um[j], vm[j])[0]) ** 2
+                for j in range(nwl)
+            ]
+
+        mod_cp = np.zeros([ncp, nwl])
+        for i in range(ncp):
+            u1, u2, u3 = (
+                grid.sign * data.u1[i],
+                grid.sign * data.u2[i],
+                grid.sign * data.u3[i],
+            )
+            v1, v2, v3 = data.v1[i], data.v2[i], data.v3[i]
+            u1m, u2m, u3m = u1 / data.wl, u2 / data.wl, u3 / data.wl
+            v1m, v2m, v3m = v1 / data.wl, v2 / data.wl, v3 / data.wl
+            greal, gimag = grid.real, grid.imag
+            cvis_1 = [
+                greal(u1m[i], v1m[i]) + 1j * gimag(u1m[i], v1m[i]) for i in range(nwl)
+            ]
+            cvis_2 = [
+                greal(u2m[i], v2m[i]) + 1j * gimag(u2m[i], v2m[i]) for i in range(nwl)
+            ]
+            cvis_3 = [
+                greal(u3m[i], v3m[i]) + 1j * gimag(u3m[i], v3m[i]) for i in range(nwl)
+            ]
+            bispec = np.array(cvis_1) * np.array(cvis_2) * np.array(cvis_3)
+            cp = np.rad2deg(np.arctan2(bispec.imag, bispec.real))
+            mod_cp[i] = np.squeeze(cp)
+        l_mod_cp.append(mod_cp)
+        l_mod_v2.append(mod_v2)
     if verbose:
         print("Execution time compute_grid_model: %2.3f s" % (time.time() - starttime))
-    return mod_v2, mod_cp
+    return l_mod_v2, l_mod_cp
 
 
 def compute_grid_model(data, grid, verbose=False):
@@ -397,3 +451,88 @@ def compute_geom_model(data, param, verbose=False):
         print("Execution time compute_geom_model: %2.3f s" % (time.time() - start_time))
 
     return l_mod_v2, l_mod_cp
+
+
+def decoratortimer(decimal):
+    def decoratorfunction(f):
+        def wrap(*args, **kwargs):
+            time1 = time.monotonic()
+            result = f(*args, **kwargs)
+            time2 = time.monotonic()
+            print(
+                "{:s} function took {:.{}f} ms".format(
+                    f.__name__, ((time2 - time1) * 1000.0), decimal
+                )
+            )
+            return result
+
+        return wrap
+
+    return decoratorfunction
+
+
+@decoratortimer(2)
+def _compute_dobs_grid_bl(
+    ibl,
+    d,
+    grid,
+    obs_wl=True,
+    w_line=0.0005,
+    p_line=2.166128,
+    scale=False,
+):
+    """Compute the differential observable (dvis, dphi) from the
+    pre-computed interpolated grid (from chromatic models).
+    """
+    # Extract u-v coordinates from data at specific baseline (ibl)
+    um = d.u[ibl]
+    vm = d.v[ibl]
+
+    if obs_wl:
+        wlm = d.wl
+    else:
+        wlm = np.linspace(d.wl[0], d.wl[-1], 100)
+
+    # Interpolated function (real and imaginary parts)
+    greal, gimag = grid.real, grid.imag
+
+    # Extract the specific points (from the data)
+    pts = (wlm, um / wlm, vm / wlm)
+    cvis = greal(pts) + 1j * gimag(pts)
+
+    # Compute the reference vis and phase from the continuum
+    cont = np.abs(wlm * 1e6 - p_line) >= 2 * w_line
+    vis_ref = np.mean(abs(cvis[cont & ~np.isnan(cvis)]))
+    phi_ref = np.rad2deg(np.mean(np.angle(cvis[cont & ~np.isnan(cvis)])))
+
+    # Compute observables
+    dvis = abs(cvis) / vis_ref
+    dphi = np.rad2deg(np.angle(cvis)) - phi_ref
+    vis2 = abs(cvis) ** 2
+
+    # Compute flux on the data resolution
+    res_obs = np.diff(d.wl).mean()
+    res_model = np.diff(grid.wl).mean()
+    scale_resol = (res_obs / res_model) / 2.355
+    if scale:
+        flux_scale = gaussian_filter1d(grid.flux, sigma=scale_resol)
+    else:
+        flux_scale = grid.flux
+    fct_flux = interp1d(grid.wl, flux_scale, kind="cubic", bounds_error=False)
+    flux_obs = fct_flux(wlm)
+
+    output = {
+        "cvis": cvis,
+        "dvis": dvis,
+        "dphi": dphi,
+        "vis2": vis2,
+        "cont": cont,
+        "wl": wlm * 1e6,
+        "p_line": p_line,
+        "flux": flux_obs,
+        "flux_model": grid.flux,
+        "wl_model": grid.wl * 1e6,
+        "ibl": ibl,
+    }
+
+    return dict2class(output)
