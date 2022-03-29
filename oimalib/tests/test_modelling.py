@@ -353,3 +353,18 @@ def test_model_pwhl(example_oifits_rmat):
     mod_v2, mod_cp = oimalib.compute_geom_model(d, param)
     assert np.shape(mod_v2)[1] == nbl
     assert np.shape(mod_cp)[1] == ncp
+
+
+@pytest.mark.parametrize("ncore", [1, 2])
+def test_model_fast(example_oifits_rmat, ncore):
+    d = oimalib.load(example_oifits_rmat)
+    fake_list_d = [d, d, d]
+    param = {"model": "gdisk", "fwhm": 3}
+    mod = oimalib.compute_geom_model_fast(fake_list_d, param, ncore=ncore)
+    ninput = len(fake_list_d)
+    nmod = len(mod)
+    shape_mod = mod[0]["vis2"].shape
+    shape_dat = d.vis2.shape
+    assert nmod == ninput
+    assert type(mod) == list
+    assert shape_mod == shape_dat

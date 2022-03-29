@@ -453,6 +453,8 @@ def compute_grid_model(data, grid, verbose=False):
 
 
 def compute_geom_model(data, param, verbose=False):
+    """Compute interferometric observables baseline per baseline
+    and for all wavelengths (slow)."""
     start_time = time.time()
     if type(data) is not list:
         l_data = [data]
@@ -476,7 +478,6 @@ def compute_geom_model(data, param, verbose=False):
 
         nbl = len(data.u)
         ncp = len(data.cp)
-
         mod_v2 = np.zeros_like(data.vis2)
         for i in range(nbl):
             u, v, wl = data.u[i], data.v[i], data.wl
@@ -498,13 +499,13 @@ def compute_geom_model(data, param, verbose=False):
 
     if verbose:
         print("Execution time compute_geom_model: %2.3f s" % (time.time() - start_time))
-
     return l_mod_v2, l_mod_cp
 
 
 def _compute_geom_model_ind(dataset, param, verbose=False):
     """Compute interferometric observables all at once (including all spectral
-    channels by using matrix computation."""
+    channels) by using matrix computation. `dataset` corresponds to an individual
+    fits file (from oimalib.load())."""
     startime = time.time()
     Utable = dataset.u
     Vtable = dataset.v
@@ -544,7 +545,10 @@ def _compute_geom_model_ind(dataset, param, verbose=False):
     return mod
 
 
-def parallel_runs(data, param, ncore=4, verbose=False):
+def compute_geom_model_fast(data, param, ncore=1, verbose=False):
+    """Compute interferometric observables using the matrix method (faster)
+    for a list of data (type(data) == list) or only one file (type(data) ==
+    dict). The multiple dataset can be computed in parallel if `ncore` > 1."""
     if type(data) is not list:
         l_data = [data]
     else:
@@ -553,35 +557,11 @@ def parallel_runs(data, param, ncore=4, verbose=False):
     pool = multiprocessing.Pool(processes=ncore)
     prod = partial(_compute_geom_model_ind, param=param)
     result_list = pool.map(prod, l_data)
+    pool.close()
     etime = time.time() - start_time
     if verbose:
         print("Execution time compute_geom_model_fast: %2.3f s" % etime)
     return result_list
-
-
-# def compute_geom_model_fast(data, param, verbose=False):
-#     if type(data) is not list:
-#         l_data = [data]
-#     else:
-#         l_data = data
-#     start_time = time.time()
-
-#     # l_mod_v2, l_mod_cp = [], []
-#     # for dataset in l_data:
-#     #     mod = _compute_geom_model_ind(dataset, param)
-#     #     l_mod_v2.append(mod["vis2"])
-#     #     l_mod_cp.append(mod["cp"])
-#     # l_mod_v2 = np.array(l_mod_v2)
-#     # l_mod_cp = np.array(l_mod_cp)
-
-#     with Pool(5) as p:
-#         l_mod = p.map(_compute_geom_model_ind, l_data, args=(param,))
-#     if verbose:
-#         print(
-#             "Execution time compute_geom_model_fast: %2.3f s"
-#             % (time.time() - start_time)
-#         )
-#     return l_mod  # l_mod_v2, l_mod_cp
 
 
 def decoratortimer(decimal):
