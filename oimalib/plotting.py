@@ -12,23 +12,32 @@ import numpy as np
 import pandas as pd
 import pkg_resources
 import seaborn as sns
+from astropy.io import fits
 from matplotlib import pyplot as plt
 from matplotlib.colors import PowerNorm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.constants import c as c_light
 from scipy.interpolate import interp1d
+from scipy.ndimage import center_of_mass
+from scipy.ndimage import rotate
 from termcolor import cprint
+from uncertainties import unumpy
 
 from oimalib.complex_models import visGaussianDisk
 from oimalib.fitting import check_params_model
+from oimalib.fitting import model_flux
+from oimalib.fitting import model_flux_red_abs
+from oimalib.fitting import model_pcshift
 from oimalib.fitting import select_model
 from oimalib.fourier import UVGrid
 from oimalib.modelling import compute_geom_model
+from oimalib.tools import find_nearest
 from oimalib.tools import hide_xlabel
 from oimalib.tools import mas2rad
+from oimalib.tools import normalize_continuum
 from oimalib.tools import plot_vline
 from oimalib.tools import rad2arcsec
 from oimalib.tools import rad2mas
-from oimalib.tools import substract_run_med
 
 dic_color = {
     "A0-B2": "#928a97",  # SB
@@ -54,7 +63,7 @@ dic_color = {
     "G1-K0": "#ffd100",
     "U1-U2": "#82b4bb",
     "U2-U3": "#255e79",
-    "U3-U4": "#267778",
+    "U3-U4": "#5ec55e",
     "U2-U4": "#ae3c60",
     "U1-U3": "#e35d5e",
     "U1-U4": "#f1ca7f",
@@ -67,6 +76,17 @@ err_pts_style = {
     "elinewidth": 0.5,
     "alpha": 1,
     "ms": 5,
+}
+
+err_pts_style2 = {
+    "linestyle": "None",
+    "capsize": 1,
+    "ecolor": "#364f6b",
+    "mec": "#364f6b",
+    "marker": ".",
+    "elinewidth": 0.5,
+    "alpha": 1,
+    "ms": 11,
 }
 
 
@@ -735,7 +755,6 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     if fitOnly is None:
         fitOnly = []
     mod_cp = compute_geom_model(data, param)[1]
-
     input_keys = ["cp", "e_cp", "freq_cp", "wl", "cpname", "set", "flag_cp"]
 
     dict_obs = {}
@@ -1061,14 +1080,15 @@ def plot_image_model(
         cprint(log, "cyan")
         return None
 
+    wl_array = np.array([wl])
     if param["model"] == "pwhl":
-        vis = model_target(Utable, Vtable, wl, param, expert_plot=expert_plot)
+        vis = model_target(Utable, Vtable, wl_array, param, expert_plot=expert_plot)
     else:
-        vis = model_target(Utable, Vtable, wl, param)
+        vis = model_target(Utable, Vtable, wl_array, param)
 
     param_psf = {"fwhm": rad2mas(wl / (2 * base_max)), "x0": 0, "y0": 0}
 
-    conv_psf = visGaussianDisk(Utable, Vtable, wl, param_psf)
+    conv_psf = visGaussianDisk(Utable, Vtable, wl_array, param_psf)
 
     # Apodisation
     x, y = np.meshgrid(range(npts), range(npts))
@@ -1221,8 +1241,8 @@ def plot_spectra(
     data,
     aver=False,
     offset=0,
-    wl_lim=None,
-    div=False,
+    bounds=None,
+    lbdBrg=2.1661,
     f_range=None,
     tellu=False,
     title=None,
@@ -1231,68 +1251,70 @@ def plot_spectra(
     d_speed=1000,
     norm=True,
 ):
-    if wl_lim is None:
-        wl_lim = [2.16612, 0.03]
+    if bounds is None:
+        bounds = [2.14, 2.19]
 
     spectra = data.flux
-    wave_cal = data.wl
+    wave_cal = data.wl * 1e6
     tel = data.tel
-    # ins = data.info.Ins
 
     array_name = data.info["Array"]
     nbl = spectra.shape[0]
 
     n_spec = spectra.shape[0]
     l_spec, l_wave = [], []
+
+    inbounds = (wave_cal <= bounds[1]) & (wave_cal >= bounds[0])
     for i in range(n_spec):
+        spectrum = spectra[i].copy()
+        spectrum = spectrum[inbounds]
+        wave_bound = wave_cal[inbounds]
+        inCont_bound = (np.abs(wave_bound - lbdBrg) < 0.1) * (
+            np.abs(wave_bound - lbdBrg) > 0.002
+        )
+        nan_interp(spectrum)
         if norm:
-            flux, wave = substract_run_med(spectra[i], wave_cal, div=div)
+            normalize_continuum(spectrum, wave_bound, inCont=inCont_bound)
         else:
-            flux, wave = spectra[i], wave_cal
-        l_spec.append(flux)
-        l_wave.append(wave * 1e6 - offset)
+            spectrum = spectra[i][inbounds]
+        l_spec.append(spectrum)
+        l_wave.append(wave_cal[inbounds] - offset)
 
     spec = np.array(l_spec).T
-
     if speed:
         wave = ((np.array(l_wave)[0] - rest) / rest) * c_light / 1e3
     else:
         wave = np.array(l_wave)[0]
 
-    if aver:
-        spec = np.mean(spec, axis=1)
+    spec_aver = np.mean(spec, axis=1)
 
+    max_spec = spec_aver.max()
     plt.figure(figsize=[6, 4])
     ax = plt.subplot(111)
 
     if aver:
-        plt.plot(
-            wave,
-            spec,
-            lw=1.5,
-            label=f"Averaged ({tel[0]}+{tel[1]}+{tel[2]}+{tel[3]})",
-        )
+        label = f"Averaged ({tel[0]}+{tel[1]}+{tel[2]}+{tel[3]})"
+        plt.plot(wave, spec_aver, lw=1.5, label=label)
         plt.legend(fontsize=7)
     else:
         if array_name == "VLTI":
             ax.set_prop_cycle("color", ["#ffc258", "#c65d7b", "#3a6091", "#79ab8e"])
         for i in range(nbl):
             plt.plot(wave, spec[:, i], lw=1.5, label=tel[i])
-
         handles, labels = ax.get_legend_handles_labels()
         labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: t[0]))
         ax.legend(handles, labels, fontsize=7)
 
     if not speed:
-        plt.xlim(wl_lim[0] - wl_lim[1], wl_lim[0] + wl_lim[1])
+        plt.xlim(bounds[0], bounds[1])
     else:
         plt.xlim(-d_speed, d_speed)
 
     plt.grid(alpha=0.2)
     if tellu:
         plot_tellu()
-    if f_range is not None:
-        plt.ylim(f_range)
+    # if f_range is not None:
+    plt.ylim(max_spec / 3.0, 1.2 * max_spec)
     plt.xlabel(r"Wavelength [$\mu$m]")
     plt.ylabel("Normalized flux [counts]")
     if title is not None:
@@ -1301,7 +1323,29 @@ def plot_spectra(
     return wave, spec
 
 
-def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
+def nan_interp(yall):
+    """
+    Interpolate nan from non-nan values.
+    Along the last dimension if several of them.
+    """
+    if len(yall.shape) > 1:
+        for y in yall:
+            nan_interp(y)
+    else:
+        nans, x = np.isnan(yall), lambda z: z.nonzero()[0]
+        yall[nans] = np.interp(x(nans), x(~nans), yall[~nans])
+
+
+def plot_dvis(
+    data,
+    bounds=None,
+    line=None,
+    dvis_range=0.08,
+    dphi_range=9,
+    norm_phi=True,
+    norm_vis=True,
+    lbdBrg=2.1661,
+):
     """
     Plot differential observables (visibility amplitude and phase).
 
@@ -1318,6 +1362,8 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
     if bounds is None:
         bounds = [2.14, 2.19]
 
+    dic_color = _update_color_bl([data])
+
     bounds2 = [bounds[0] - 0.001, bounds[1] + 0.001]
 
     if len(data.flux.shape) == 1:
@@ -1325,33 +1371,51 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
     else:
         spectrum = data.flux.mean(axis=0)
 
+    # to µm
     wl = data.wl * 1e6
+    # Focus on a specific part of the spectrum
+    cond_wl = (wl >= bounds[0]) & (wl <= bounds[1])
 
-    try:
-        flux, wave = substract_run_med(spectrum, wl, div=True)
-    except IndexError:
-        flux, wave = spectrum, wl
+    nspec = len(spectrum)
+    nwl = len(wl)
 
-    cond_wl = (wave >= bounds[0]) & (wave <= bounds[1])
-    cond_wl2 = (wl >= bounds[0]) & (wl <= bounds[1])
+    flux = spectrum.copy()
+    wl_sel = wl[cond_wl]
+    n_sel = len(wl_sel)
+    inCont = (np.abs(wl_sel - lbdBrg) < 0.1) * (np.abs(wl_sel - lbdBrg) > 0.004)
 
-    wave = wave[cond_wl]
-    try:
-        flux = flux[cond_wl]
-    except IndexError:
-        flux = [np.nan] * len(wave)
+    if nwl == nspec:
+        flux_sel = flux[cond_wl]
+        normalize_continuum(flux_sel, wl_sel, inCont=inCont)
+    else:
+        flux_sel = [np.nan] * n_sel
+        lbdBrg = line
 
     dphi = data.dphi
     dvis = data.dvis
     blname = data.blname
+    bl = data.bl
 
     linestyle = {"lw": 1}
-
     fig = plt.figure(figsize=(4, 8.5))
+    try:
+        peak_line = flux_sel.max()
+    except AttributeError:
+        peak_line = 0
 
     # ------ PLOT AVERAGED SPECTRUM ------
     ax = plt.subplot(13, 1, 1)
-    plt.plot(wave, flux, **linestyle)
+    plt.plot(wl_sel, flux_sel, **linestyle)
+    plt.text(
+        0.14,
+        0.8,
+        "lcr = %2.2f" % peak_line,
+        color="#1e82b8",
+        fontsize=10,
+        ha="center",
+        va="center",
+        transform=ax.transAxes,
+    )
     plt.ylabel("Spec.")
 
     if line is not None:
@@ -1373,15 +1437,26 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
     for i in range(dvis.shape[0]):
         ax = plt.subplot(13, 1, 2 + i, sharex=ax)
 
-        data_dvis = dvis[i][cond_wl2]
+        data_dvis = dvis[i][cond_wl]
         dvis_m = data_dvis[~np.isnan(data_dvis)].mean()
+        # inCont = (np.abs(wl[cond_wl] - lbdBrg) < 0.1) * (
+        #     np.abs(wl[cond_wl] - lbdBrg) > 0.002
+        # )
 
+        nan_interp(data_dvis)
+        cont_value = data_dvis[inCont].mean()
         if not np.isnan(dvis_m):
-            plt.step(wl[cond_wl2], data_dvis, **linestyle)
+            X = wl[cond_wl]
+            Y = data_dvis.copy()
+            nan_interp(Y)
+            if norm_vis:
+                normalize_continuum(Y, X, inCont)
+                Y *= cont_value
+            plt.step(X, Y, color=dic_color[blname[i]], **linestyle)
             plt.text(
-                0.92,
+                0.16,
                 0.8,
-                blname[i],
+                "%s (%i m)" % (blname[i], bl[i]),
                 fontsize=8,
                 ha="center",
                 va="center",
@@ -1396,19 +1471,16 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
             hide_xlabel()
             plt.xlim(bounds2)
         else:
-            # frame1 = plt.gca()
-            # frame1.axes.get_xaxis().set_visible(False)
-            # frame1.axes.get_yaxis().set_visible(False)
             plt.xlim(bounds2)
             plt.xticks([])
             plt.yticks([])
             plt.ylabel("amp.")
             plt.text(
-                0.92,
+                0.03,
                 0.8,
-                blname[i],
+                "%s (%i m)" % (blname[i], bl[i]),
                 fontsize=8,
-                ha="center",
+                ha="left",
                 va="center",
                 transform=ax.transAxes,
             )
@@ -1428,15 +1500,22 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
     for i in range(dphi.shape[0]):
         ax = plt.subplot(13, 1, 8 + i, sharex=ax)
 
-        if np.diff(dphi[i][cond_wl2]).mean() != 0:
-            plt.step(wl[cond_wl2], dphi[i][cond_wl2], **linestyle)
-            dphi_m = dphi[i][cond_wl2].mean()
+        if np.diff(dphi[i][cond_wl]).mean() != 0:
+            X = wl[cond_wl]
+            Y = dphi[i][cond_wl]
+            nan_interp(Y)
+            # inCont = (np.abs(X - lbdBrg) < 0.1) * (np.abs(X - lbdBrg) > 0.002)
+            if norm_phi:
+                normalize_continuum(Y, X, inCont, phase=True)
+            plt.step(X, Y, color=dic_color[blname[i]], **linestyle)
+            dphi_m = Y.mean()
+
             plt.text(
-                0.92,
+                0.03,
                 0.8,
-                blname[i],
+                "%s (%i m)" % (blname[i], bl[i]),
                 fontsize=8,
-                ha="center",
+                ha="left",
                 va="center",
                 transform=ax.transAxes,
             )
@@ -1449,7 +1528,10 @@ def plot_dvis(data, bounds=None, line=None, dvis_range=0.08, dphi_range=9):
             ax.tick_params(axis="both", which="major", labelsize=8)
             if line is not None:
                 plot_vline(line)
-            plt.ylim(dphi_m - dphi_range, dphi_m + dphi_range)
+            try:
+                plt.ylim(dphi_m - dphi_range, dphi_m + dphi_range)
+            except ValueError:
+                plt.ylim(-dphi_range, dphi_range)
             plt.xlim(bounds2)
         else:
             if 8 + i != 13:
@@ -1677,3 +1759,498 @@ def plot_diffobs_model(dobs, data, dobs_full=None, speed=False):
         plt.xlabel("Wavelengths [µm]")
     plt.subplots_adjust(left=0.17, right=0.98, top=0.99)
     return fig
+
+
+def plot_pcs(pcs, speed=True, r=None, dpc=None, xlim=50):
+    """Plot the photocenter shift (oriented East-North)."""
+
+    wave = pcs["wl"]
+    if speed:
+        rest = pcs["wl_line"]
+        wave = ((pcs["wl"] - rest) / rest) * c_light / 1e3
+
+    factor = 1
+    if dpc is not None:
+        factor = dpc / 1e3
+
+    if r is not None:
+        x = r * np.cos(np.linspace(0, 2 * np.pi, 100))
+        y = r * np.sin(np.linspace(0, 2 * np.pi, 100))
+
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+
+    fig = plt.figure(figsize=(6, 4.8))
+    ax = plt.gca()
+    sc = ax.scatter(
+        unumpy.nominal_values(pcs["east"]) * factor,
+        unumpy.nominal_values(pcs["north"]) * factor,
+        c=wave,
+        cmap="coolwarm",
+        edgecolor="k",
+        zorder=3,
+        linewidth=1,
+    )
+    ax.errorbar(
+        unumpy.nominal_values(pcs["east"]) * factor,
+        unumpy.nominal_values(pcs["north"]) * factor,
+        xerr=unumpy.std_devs(pcs["east"]) * factor,
+        yerr=unumpy.std_devs(pcs["north"]) * factor,
+        color="k",
+        ls="None",
+        elinewidth=1,
+        capsize=1,
+    )
+
+    if r is not None:
+        ax.plot(x, y, "g--", lw=1)
+    clabel = "Wavelength [km/s]"
+    if not speed:
+        clabel = "Wavelength [µm]"
+    cbar_kws = {
+        "label": clabel,
+    }
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cbar = plt.colorbar(sc, **cbar_kws, cax=cax)
+    cbar.ax.tick_params(size=0)
+
+    ax.set_xlim(xlim, -xlim)
+    ax.set_ylim(-xlim, xlim)
+    if dpc is not None:
+        ax.set_xlabel("Photocenter shift [AU]")
+        ax.set_ylabel("Photocenter shift [AU]")
+    else:
+        ax.set_xlabel("Photocenter shift [µas]")
+        ax.set_ylabel("Photocenter shift [µas]")
+    ax.axvline(0, ls="-", color="gray", lw=1)
+    ax.axhline(0, ls="-", color="gray", lw=1)
+    ax.set_aspect("equal", adjustable="box")
+    plt.tight_layout()
+    # plt.subplots_adjust(bottom=0.13, left=0.16, top=0.98, right=0.82)
+    return fig
+
+
+def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
+    """Plot the photocenter offset (`pco`) and the fitted photocenter shift
+    (`pcs`) for the spectral channel `iwl_pc`."""
+    pco = output_pco["pco"]
+    bl_pa = output_pco["bl_pa"]
+    bl_length = output_pco["bl_length"]
+    wl = output_pco["wl"]
+    nbl = output_pco["nbl"]
+    l_blname = output_pco["blname"]
+
+    x_pc_mod = np.linspace(0, 360, 100)
+    y_pc_mod = model_pcshift(x_pc_mod, pcs["fit_param"][iwl_pc]["best"])
+
+    param = pcs["fit_param"][iwl_pc]["best"]
+    uncer = pcs["fit_param"][iwl_pc]["uncer"]
+
+    p1 = {"p": param["p"] - uncer["p"], "offset": param["offset"] - uncer["offset"]}
+    p2 = {"p": param["p"] + uncer["p"], "offset": param["offset"] + uncer["offset"]}
+    y_pc_mod1 = model_pcshift(x_pc_mod, p1)
+    y_pc_mod2 = model_pcshift(x_pc_mod, p2)
+
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+    fig = plt.figure()
+    ax = plt.subplot(111)
+    for i in range(nbl):
+        blname = l_blname[i]
+        color_bl = dic_color[blname]
+        bl = bl_length[i]
+        label = f"{blname} ({bl:2.2f} m)"
+        plt.errorbar(
+            bl_pa[i],
+            pco[i, iwl_pc].nominal_value,
+            yerr=pco[i, iwl_pc].std_dev,
+            label=label,
+            color=color_bl,
+            **err_pts_style2,
+        )
+        plt.errorbar(
+            bl_pa[i] - 180,
+            -pco[i, iwl_pc].nominal_value,
+            yerr=pco[i, iwl_pc].std_dev,
+            color=color_bl,
+            **err_pts_style2,
+        )
+
+    props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
+    plt.text(
+        0.05,
+        0.95,
+        "λ = %2.4f µm\npc = %2.1f ± %2.1f µas\nθ = %2.1f ± %2.1f deg"
+        % (
+            wl[iwl_pc],
+            pcs["fit_param"][iwl_pc]["best"]["p"] * 1000,
+            pcs["fit_param"][iwl_pc]["uncer"]["p"] * 1000,
+            pcs["fit_param"][iwl_pc]["best"]["offset"],
+            pcs["fit_param"][iwl_pc]["uncer"]["offset"],
+        ),
+        transform=ax.transAxes,
+        verticalalignment="top",
+        bbox=props,
+    )
+    plt.plot(x_pc_mod, y_pc_mod, lw=1, label="Projected shift")
+    plt.fill_between(x_pc_mod, y_pc_mod1, y_pc_mod2, alpha=0.5)
+    plt.legend(fontsize=8, loc=1)
+    plt.axhline(0, lw=1, color="gray")
+    plt.ylabel("Photocenter offset [mas]")
+    plt.xlabel("Baseline PA [deg]")
+    plt.ylim(-pc_max, pc_max)
+    plt.xlim(0, 360)
+    plt.tight_layout()
+    return fig
+
+
+def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
+    """ """
+    if vis_range is None:
+        vis_range = [0, 1.1]
+    wl = flc["wl"]
+    flux = flc["flux"]
+    e_flux = flc["e_flux"]
+    inLine = flc["inLine"]
+
+    fit = flc["fit"]
+    try:
+        line_fitted = fit["best"]["lbdBrg"]
+        w_fitted = 2.355 * fit["best"]["sigBrg"] / 2.0
+    except KeyError:
+        line_fitted = fit["best"]["p1"]
+        w_fitted = 2.355 * fit["best"]["w1"] / 2.0
+
+    wl_model = np.linspace(2.15, 2.18, 1000)
+    red_abs = flc["red_abs"]
+    if not red_abs:
+        flux_model = model_flux(wl_model, fit["best"]) + 1
+    else:
+        flux_model = model_flux_red_abs(wl_model, fit["best"]) + 1
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+    plt.figure(figsize=(6, 8))
+    ax = plt.subplot(311)
+    plt.errorbar(flc["wl"], flc["flux"], yerr=flc["e_flux"], **err_pts_style)
+    plt.scatter(
+        wl[inLine],
+        flux[inLine],
+        c=wl[inLine],
+        cmap="coolwarm",
+        edgecolor="k",
+        zorder=3,
+        s=30,
+        linewidth=1,
+    )
+    plt.errorbar(
+        wl[inLine],
+        flux[inLine],
+        yerr=e_flux,
+        color="k",
+        ls="None",
+        elinewidth=1,
+        capsize=1,
+    )
+    plt.plot(wl_model, flux_model, lw=1)
+    plt.fill_between(
+        wl_model, flux_model - e_flux, flux_model + e_flux, color="orange", alpha=0.3
+    )
+    plt.ylabel("Norm. flux")
+
+    plt.xlim(2.1661 - 0.01, 2.1661 + 0.01)
+
+    ax2 = plt.subplot(312, sharex=ax)
+    plt.axvline(line_fitted, color="#b0bec4", lw=2, ls="--")
+    plt.axvspan(
+        line_fitted - w_fitted, line_fitted + w_fitted, color="#b0bec4", alpha=0.3
+    )
+    plt.errorbar(wl, pure.dvis, yerr=pure.e_dvis, **err_pts_style)
+    plt.scatter(
+        wl[inLine],
+        pure.dvis_pure,
+        c=wl[inLine],
+        cmap="coolwarm",
+        edgecolor="k",
+        zorder=3,
+        s=30,
+        linewidth=1,
+    )
+    plt.errorbar(
+        wl[inLine],
+        pure.dvis_pure,
+        yerr=pure.e_dvis_pure,
+        color="k",
+        ls="None",
+        elinewidth=1,
+        capsize=1,
+    )
+    plt.plot(wl, pure.mod_dvis, lw=1)
+    plt.fill_between(
+        wl,
+        pure.mod_dvis - pure.e_mod_dvis,
+        pure.mod_dvis + pure.e_mod_dvis,
+        color="orange",
+        alpha=0.3,
+    )
+    props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
+    plt.text(
+        0.05,
+        0.9,
+        f"{pure.blname} ({pure.bl_length:2.2f} m)",
+        transform=ax2.transAxes,
+        # fontsize=13,
+        verticalalignment="top",
+        bbox=props,
+    )
+    plt.ylabel("Vis. Amp.")
+    plt.ylim(vis_range[0], vis_range[1])
+    plt.subplot(313, sharex=ax)
+    plt.axvline(line_fitted, color="#b0bec4", lw=2, ls="--")
+    plt.axvspan(
+        line_fitted - w_fitted, line_fitted + w_fitted, color="#b0bec4", alpha=0.3
+    )
+    plt.errorbar(wl, pure.dphi, yerr=pure.e_dphi, **err_pts_style)
+    plt.scatter(
+        wl[inLine],
+        pure.dphi_pure,
+        c=wl[inLine],
+        cmap="coolwarm",
+        edgecolor="k",
+        zorder=3,
+        s=30,
+        linewidth=1,
+    )
+    plt.errorbar(
+        wl[inLine],
+        pure.dphi_pure,
+        yerr=pure.e_dphi_pure,
+        color="k",
+        ls="None",
+        elinewidth=1,
+        capsize=1,
+    )
+    plt.plot(wl, pure.mod_dphi, lw=1)
+    plt.fill_between(
+        wl,
+        pure.mod_dphi - pure.e_mod_dphi,
+        pure.mod_dphi + pure.e_mod_dphi,
+        color="orange",
+        alpha=0.3,
+    )
+    plt.xlabel("Wavelength [µm]")
+    plt.ylabel("Vis. phase [deg]")
+    plt.ylim(-phi_max, phi_max)
+    plt.tight_layout()
+    return ax2
+
+
+def plot_image_model_pcs(
+    iwl,
+    pcs,
+    modelfile,
+    flip=True,
+    rotation=0,
+    sub_cont=None,
+    fov=None,
+    results=False,
+    cm=False,
+):
+    """Plot PCS and model image in the same plot, data should come from aspro."""
+    hdu = fits.open(modelfile)
+    cube = hdu[0].data
+    image = cube[0]
+    hdr = hdu[0].header
+    hdu.close()
+    pix = abs(rad2mas(np.deg2rad(hdr["CDELT1"])) * 1000.0)
+    n_wl = cube.shape[0]
+    delta_wl = hdr["CDELT3"]
+    wl0 = hdr["CRVAL3"]
+    wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
+    idx = find_nearest(wl_model, pcs["wl"][iwl])
+
+    if flip:
+        image = np.fliplr(cube[idx])
+    else:
+        image = cube[idx]
+
+    # axes_rot = (1, 2)
+    image = rotate(image, -rotation, reshape=False)
+    im_cont = rotate(cube[0], -rotation, reshape=False)
+
+    npix = len(image)
+
+    xx, yy = np.arange(npix), np.arange(npix)
+    xx_c = xx - npix // 2 - 0.5
+    yy_c = yy - npix // 2
+    distance = np.sqrt(xx_c ** 2 + yy_c[:, np.newaxis] ** 2) * pix
+
+    l_cmass = []
+    for x in pcs["wl"]:
+        idx = find_nearest(wl_model, x)
+        if flip:
+            tmp = np.fliplr(cube[idx].copy())
+        else:
+            tmp = cube[idx].copy()
+        if sub_cont:
+            tmp -= im_cont
+        tmp = rotate(tmp, -rotation, reshape=False)
+        tmp[tmp < tmp.max() / 1e5] = 1e-30
+        tmp[distance > 300] = 1e-30
+        c_mass = np.array(center_of_mass(tmp))
+        c_mass2 = ((c_mass) - npix / 2.0) * pix
+        l_cmass.append(c_mass2)
+    l_cmass = np.array(l_cmass)
+
+    extent = (np.array([npix, 0, 0, npix]) - npix // 2) * pix
+
+    if sub_cont:
+        image -= im_cont
+    image[image < 0] = 0
+
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+    plt.figure(figsize=(6, 4.8))
+    ax = plt.subplot(111)
+    if results:
+        plt.text(
+            0.05,
+            0.95,
+            "λ = %2.4f µm\npc = %2.1f ± %2.1f µas\nθ = %2.1f ± %2.1f deg"
+            % (
+                pcs["wl"][iwl],
+                pcs["fit_param"][iwl]["best"]["p"],
+                pcs["fit_param"][iwl]["uncer"]["p"],
+                pcs["fit_param"][iwl]["best"]["offset"],
+                pcs["fit_param"][iwl]["uncer"]["offset"],
+            ),
+            transform=ax.transAxes,
+            verticalalignment="top",
+            color="#f1d68e",
+            alpha=0.7,
+        )
+
+    rest = pcs["wl_line"]
+    wave = ((pcs["wl"][iwl] - rest) / rest) * c_light / 1e3
+    plt.text(
+        0.05,
+        0.95,
+        f"speed = {wave:2.1f} km/s",
+        transform=ax.transAxes,
+        verticalalignment="top",
+        color="#f1d68e",
+        alpha=0.7,
+    )
+    plt.axvline(0, color="gray", alpha=0.2, lw=1)
+    plt.axhline(0, color="gray", alpha=0.2, lw=1)
+    plt.imshow(
+        image,
+        origin="lower",
+        extent=extent,
+        cmap="gist_stern",
+        norm=PowerNorm(1),
+        interpolation="bilinear",
+    )
+    ax.grid(False)
+    plt.scatter(
+        unumpy.nominal_values(pcs["east"]),
+        unumpy.nominal_values(pcs["north"]),
+        c=pcs["wl"],
+        cmap="coolwarm",
+        edgecolor="k",
+        zorder=3,
+        linewidth=1,
+    )
+
+    i_east = unumpy.nominal_values(pcs["east"])[iwl]
+    i_north = unumpy.nominal_values(pcs["north"])[iwl]
+    plt.plot(i_east, i_north, "g+", zorder=3)
+    if cm:
+        plt.scatter(
+            -l_cmass[:, 1],
+            l_cmass[:, 0],
+            c=pcs["wl"],
+            alpha=0.8,
+            s=200,
+            marker="s",
+            cmap="coolwarm",
+        )
+    plt.xlabel("Relative RA [µas]")
+    plt.ylabel("Relative DEC [µas]")
+    if fov is not None:
+        plt.axis([fov / 2, -fov // 2, -fov / 2, fov / 2])
+    plt.tight_layout()
+    return image, extent, l_cmass
+
+
+def plot_model_RT(
+    iwl,
+    pcs,
+    modelfile,
+    flip=True,
+    rotation=0,
+    sub_cont=None,
+    fov=None,
+):
+    """Plot model image from the RT modelling cube."""
+    hdu = fits.open(modelfile)
+    cube = hdu[0].data
+    image = cube[0]
+    hdr = hdu[0].header
+    hdu.close()
+    pix = abs(rad2mas(np.deg2rad(hdr["CDELT1"])) * 1000.0)
+    n_wl = cube.shape[0]
+    delta_wl = hdr["CDELT3"]
+    wl0 = hdr["CRVAL3"]
+    wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
+    idx = find_nearest(wl_model, pcs["wl"][iwl])
+
+    if flip:
+        image = np.fliplr(cube[idx])
+    else:
+        image = cube[idx]
+
+    # axes_rot = (1, 2)
+    image = rotate(image, -rotation, reshape=False)
+    im_cont = rotate(cube[0], -rotation, reshape=False)
+
+    npix = len(image)
+    extent = (np.array([npix, 0, 0, npix]) - npix // 2) * pix
+
+    if sub_cont:
+        image -= im_cont
+    image[image < 0] = 0
+
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+    plt.figure(figsize=(6, 4.8))
+    ax = plt.subplot(111)
+    rest = pcs["wl_line"]
+    wave = ((pcs["wl"][iwl] - rest) / rest) * c_light / 1e3
+    plt.text(
+        0.05,
+        0.95,
+        f"speed = {wave:2.1f} km/s",
+        transform=ax.transAxes,
+        verticalalignment="top",
+        color="#f1d68e",
+        alpha=0.7,
+    )
+    plt.axvline(0, color="gray", alpha=0.2, lw=1)
+    plt.axhline(0, color="gray", alpha=0.2, lw=1)
+    plt.imshow(
+        image,
+        origin="lower",
+        extent=extent,
+        cmap="gist_stern",
+        norm=PowerNorm(1),
+        interpolation="bilinear",
+    )
+    ax.grid(False)
+    plt.xlabel("Relative RA [µas]")
+    plt.ylabel("Relative DEC [µas]")
+    if fov is not None:
+        plt.axis([fov / 2, -fov // 2, -fov / 2, fov / 2])
+    plt.tight_layout()
+    return image, extent
