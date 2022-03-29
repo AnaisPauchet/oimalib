@@ -32,7 +32,7 @@ def test_plot_residual(example_oifits_grav):
 @pytest.mark.usefixtures("close_figures")
 def test_plot_spectra(example_oifits_rmat):
     d = oimalib.load(example_oifits_rmat, simu=True)
-    oimalib.plot_spectra(d, wl_lim=[3.5, 1], norm=False)
+    oimalib.plot_spectra(d, bounds=[2.5, 4.5], norm=False)
     assert isinstance(d, dict)
     assert plt.gcf().number == 1
 
@@ -41,7 +41,7 @@ def test_plot_spectra(example_oifits_rmat):
 @pytest.mark.parametrize("choice", [True, False])
 def test_plot_spectra_line(example_oifits_rgrav, choice):
     d = oimalib.load(example_oifits_rgrav)
-    oimalib.plot_spectra(d, tellu=False, div=choice, speed=choice, rest=2.166)
+    oimalib.plot_spectra(d, tellu=False, speed=choice, rest=2.1661)
     assert isinstance(d, dict)
     assert plt.gcf().number == 1
 
