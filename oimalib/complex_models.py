@@ -205,8 +205,8 @@ def visUniformDisk(Utable, Vtable, Lambda, param):
     x0, y0: {float}
         Shift along x and y position [rad].
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     diam = mas2rad(param["diam"])
 
@@ -234,8 +234,8 @@ def visEllipticalUniformDisk(Utable, Vtable, Lambda, param):
     x0, y0: {float}
         Shift along x and y position [rad].
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     # List of parameter
     elong = np.cos(np.deg2rad(param["incl"]))
@@ -268,12 +268,12 @@ def visGaussianDisk(Utable, Vtable, Lambda, param):
     x0, y0: {float}
         Shift along x and y position [rad].
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     fwhm = mas2rad(param["fwhm"])
-    x0 = mas2rad(param["x0"])
-    y0 = mas2rad(param["y0"])
+    x0 = mas2rad(param.get("x0", 0))
+    y0 = mas2rad(param.get("y0", 0))
 
     q = (u ** 2 + v ** 2) ** 0.5
     r2 = ((np.pi * q * fwhm) ** 2) / (4 * np.log(2.0))
@@ -301,8 +301,8 @@ def visEllipticalGaussianDisk(Utable, Vtable, Lambda, param):
     x0, y0: {float}
         Shift along x and y position [rad].
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     # List of parameter
     elong = np.cos(np.deg2rad(param["incl"]))
@@ -344,8 +344,8 @@ def visCont(Utable, Vtable, Lambda, param):
     `rstar` {float}:
         Radius of the star [mas],\n
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     pa = np.deg2rad(param["pa"])
 
@@ -438,8 +438,8 @@ def visLazareff(Utable, Vtable, Lambda, param):
         Cosine and sine amplitude for the mode 1 (azimutal changes),\n
 
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
     # List of parameter
 
     elong = np.cos(np.deg2rad(param["incl"]))
@@ -499,10 +499,10 @@ def visLazareff(Utable, Vtable, Lambda, param):
     fc_lambda = fc * (wl0 / Lambda) ** kc
     fh_lambda = fh * (wl0 / Lambda) ** ks
     p_s1 = {"x0": 0, "y0": 0}
-    s1 = fs_lambda * visPointSource(Utable, Vtable, Lambda, p_s1)
-    s2 = fc_lambda * Vring
+    s1 = fs_lambda[:, None] * visPointSource(Utable, Vtable, Lambda, p_s1)
+    s2 = fc_lambda[:, None] * Vring
     ftot = fs_lambda + fh_lambda + fc_lambda
-    return (s1 + s2) / ftot
+    return s1 + s2 / ftot[:, None]
 
 
 def visLazareff_halo(Utable, Vtable, Lambda, param):
@@ -533,8 +533,8 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
         Cosine and sine amplitude for the mode 1 (azimutal changes),\n
 
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
     # List of parameter
 
     elong = np.cos(np.deg2rad(param["incl"]))
@@ -591,10 +591,10 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
     fc_lambda = fc * (wl0 / Lambda) ** kc
     fh_lambda = fh * (wl0 / Lambda) ** ks
     p_s1 = {"x0": 0, "y0": 0}
-    s1 = fs_lambda * visPointSource(Utable, Vtable, Lambda, p_s1)
-    s2 = fc_lambda * Vring
+    s1 = fs_lambda[:, None] * visPointSource(Utable, Vtable, Lambda, p_s1)
+    s2 = fc_lambda[:, None] * Vring
     ftot = fs_lambda + fh_lambda + fc_lambda
-    return (s1 + s2) / ftot
+    return s1 + s2 / ftot[:, None]
 
 
 def visLazareff_line(Utable, Vtable, Lambda, param):
@@ -625,8 +625,8 @@ def visLazareff_line(Utable, Vtable, Lambda, param):
         Cosine and sine amplitude for the mode 1 (azimutal changes),\n
 
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
     # List of parameter
 
     elong = np.cos(np.deg2rad(param["incl"]))
@@ -731,15 +731,15 @@ def visThickEllipticalRing(Utable, Vtable, Lambda, param):
     x0 = param.get("x0", 0)
     y0 = param.get("y0", 0)
 
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     r = np.sqrt(
         ((u * np.sin(angle) + v * np.cos(angle)) * majorAxis) ** 2
         + ((u * np.cos(angle) - v * np.sin(angle)) * minorAxis) ** 2
     )
 
-    C_centered = special.j0(np.pi * r)
+    C_centered = special.j0(2 * np.pi * r)
     C_shifted = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
     C = C_shifted * visGaussianDisk(
         Utable, Vtable, Lambda, {"fwhm": rad2mas(thickness), "x0": 0.0, "y0": 0.0}
@@ -770,8 +770,8 @@ def visEllipticalRing(Utable, Vtable, Lambda, param):
     x0 = param["x0"]
     y0 = param["y0"]
 
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     r = np.sqrt(
         ((u * np.sin(angle) + v * np.cos(angle)) * majorAxis) ** 2
@@ -799,8 +799,8 @@ def visEllipsoid(Utable, Vtable, Lambda, param):
         Hybridation between purely gaussian (flor=0)
         and Lorentzian radial profile (flor=1).
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     pa = np.deg2rad(param["pa"])
 
@@ -833,8 +833,8 @@ def visLorentzDisk(Utable, Vtable, Lambda, param):
     x0, y0: {float}
         Shift along x and y position [mas].
     """
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     fwhm = mas2rad(param["fwhm"])
     x0 = mas2rad(param["x0"])
@@ -875,8 +875,8 @@ def visDebrisDisk(Utable, Vtable, Lambda, param):
 
     minorAxis = majorAxis * elong
 
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     r = np.sqrt(
         ((u * np.sin(posang) + v * np.cos(posang)) * majorAxis) ** 2
@@ -930,8 +930,8 @@ def visClumpDebrisDisk(Utable, Vtable, Lambda, param):
 
     minorAxis = majorAxis * elong
 
-    u = Utable / Lambda
-    v = Vtable / Lambda
+    u = Utable / Lambda[:, None]
+    v = Vtable / Lambda[:, None]
 
     r = np.sqrt(
         ((u * np.sin(posang) + v * np.cos(posang)) * majorAxis) ** 2
@@ -1384,7 +1384,7 @@ def visSpiralTemp(
     C_centered = visMultipleResolved(
         Utable, Vtable, Lambda, typei, spectrumi, list_param
     )
-
+    # print(C_centered.shape)
     x0, y0 = mas2rad(param["x0"]), mas2rad(param["y0"])
     C = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
     return C
@@ -1393,8 +1393,16 @@ def visSpiralTemp(
 def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
     """Compute the complex visibility of a multi-component object."""
     n_obj = len(typei)
-    corrFluxTmp = 0
-    # for i in tqdm(range(n_obj), desc='Compute vis. components', leave=True, ncols=100,):
+    if type(Utable) == np.float64:
+        nbl = 1
+    else:
+        nbl = len(Utable)
+    if type(Lambda) == np.float64:
+        nwl = 1
+    else:
+        nwl = len(Lambda)
+    corrFluxTmp = np.zeros([n_obj, nwl, nbl], dtype=complex)
+
     for i in range(n_obj):
         if typei[i] == "r":
             Ci = visEllipticalRing(Utable, Vtable, Lambda, list_param[i])
@@ -1415,16 +1423,18 @@ def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
         else:
             print("Model not yet in VisModels")
         spec2 = spec[i]
-        Ci2 = Ci.reshape(1, np.size(Ci))
-        corrFluxTmp += np.dot(spec2, Ci2)
-    corrFlux = corrFluxTmp
+        corrFluxTmp[i, :, :] = spec2 * Ci
+        # Ci2 = Ci.reshape(1, np.size(Ci))
+        # corrFluxTmp += np.dot(spec2, Ci2)
+        # corrFluxTmp += Ci
+    corrFlux = corrFluxTmp.sum(axis=0)
     flux = np.sum(spec, 0)
     try:
         vis = corrFlux / flux
     except Exception:
         print("Error : flux = 0")
         vis = None
-    return vis[0]
+    return vis
 
 
 def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
@@ -1463,7 +1473,6 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     param["incl"] = param["incl"] + 180
     # Binary point source
     # --------------------------------------------------------------------------
-
     if ("M1" in param.keys()) & ("M2" in param.keys()):
         tab = getBinaryPos(
             mjd, param, mjd0=param["mjd0"], revol=1, v=2, au=True, display=expert_plot
@@ -1495,7 +1504,6 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
 
     # Contribution of each star in the binary system
     p_OB, p_WR = computeBinaryRatio(param, Lambda)
-
     p_OB = np.mean(p_OB)
     p_WR = np.mean(p_WR)
     if verbose:
@@ -1547,9 +1555,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         n_elts = param["nelts"]
         sed_pwhl_wl = None
 
-    # wl_0_m = wl_0*1e6
     wl_m = wl * 1e6
-    # l_wl0 = [wl_0_m]*n_elts
     l_wl = [wl_m] * n_elts
 
     if param["r_nuc"] != 0:
@@ -1594,7 +1600,9 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
             plt.loglog(wl_sed, tab_dust_fluxes[5], "-", color="lightgrey")
         except ValueError:
             pass
-        plt.ylim(binary_sed.max() / 1e6, binary_sed.max() * 1e2)
+
+        max_plot = full_sed.max()
+        plt.ylim(max_plot / 1e6, max_plot * 1e2)
         plt.plot(-1, -1, "-", color="grey", lw=3, label="Illuminated dust")  # legend
         plt.plot(-1, -1, "-", color="lightgrey", lw=3, label="Shadowed dust")  # legend
         plt.loglog(
@@ -1624,21 +1632,6 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         plt.legend(loc=1, fontsize=8)
         plt.grid(alpha=0.1, which="both")
         plt.tight_layout()
-
-    # try:
-    #     wl_peak = wl_sed[np.argmax(full_sed)]
-    #     sed_save = {
-    #         "wl": wl_sed,
-    #         "dust": full_sed,
-    #         "star": binary_sed,
-    #         "Fdust": P_dust,
-    #         "Fstar": P_star,
-    #         "wl_obs": wl_m,
-    #         "Twien": Twien,
-    #         "wl_peak": wl_peak,
-    #     }
-    # except UnboundLocalError:
-    #     sed_save = None
 
     if contrib_star == 1:
         P_star = 1
@@ -1681,24 +1674,9 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         Utable, Vtable, Lambda, {"fwhm": thickness, "x0": 0.0, "y0": 0.0}
     )
 
-    vis_OB = p_OB * Fstar * visPointSource(Utable, Vtable, wl, param_star_O)
-    vis_WR = p_WR * Fstar * visPointSource(Utable, Vtable, wl, param_star_WR)
+    vis_OB = p_OB * Fstar[:, None] * visPointSource(Utable, Vtable, wl, param_star_O)
+    vis_WR = p_WR * Fstar[:, None] * visPointSource(Utable, Vtable, wl, param_star_WR)
 
-    vis = Fpwhl * Vpwhl + vis_OB + vis_WR
+    vis = Fpwhl[:, None] * Vpwhl + vis_OB + vis_WR
 
-    # vis = (p_OB * Fstar * visPointSource(Utable, Vtable, wl, param_star_O)
-    #     + p_WR * Fstar * visPointSource(Utable, Vtable, wl, param_star_WR)
-    #     + Fpwhl
-    #     * visPinwheel(
-    #         Utable,
-    #         Vtable,
-    #         wl,
-    #         mjd,
-    #         param,
-    #         spec=sed_pwhl_wl,
-    #         verbose=verbose,
-    #         display=display,
-    #     ))
-    #     + Fshell * visGaussianDisk(Utable, Vtable, wl, param)
-
-    return vis  # np.array(vis), sed_save
+    return vis
