@@ -8,13 +8,16 @@ Set of function to extract complex visibilities from fits image/cube
 or geometrical model.
 -----------------------------------------------------------------
 """
+import multiprocessing
 import sys
 import time
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 from astropy.io import fits
 from munch import munchify as dict2class
+from scipy import fft
 from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 from scipy.interpolate import RegularGridInterpolator as regip
@@ -26,11 +29,13 @@ from oimalib.fitting import check_params_model
 from oimalib.fitting import comput_CP
 from oimalib.fitting import comput_V2
 from oimalib.fitting import select_model
+from oimalib.fourier import UVGrid
 from oimalib.tools import mas2rad
+from oimalib.tools import rad2arcsec
 from oimalib.tools import rad2mas
 
 
-def _print_info_model(wl_model, modelfile, fov, npix, s):
+def _print_info_model(wl_model, modelfile, fov, npix, s, starttime):
     nwl = len(wl_model)
     if nwl == 1:
         modeltype = "image"
@@ -43,9 +48,10 @@ def _print_info_model(wl_model, modelfile, fov, npix, s):
     title = f"Model grid from {modeltype} ({fname})"
     cprint(title, "cyan")
     cprint("-" * len(title), "cyan")
+    pixsize = fov / npix
     print(
-        "fov=%2.2f mas, npix=%i (%i padded), pix=%2.3f mas"
-        % (fov, npix, s[2], fov / npix)
+        "fov=%2.2f mas, npix=%i (%i padded, equivalent %2.2f mas), pix=%2.3f mas"
+        % (fov, npix, s[2], s[2] * pixsize, pixsize)
     )
     if nwl == 1:
         cprint("nwl=%i (%2.1f µm)" % (nwl, np.mean(wl_model) * 1e6), "green")
@@ -58,7 +64,34 @@ def _print_info_model(wl_model, modelfile, fov, npix, s):
             % (nwl, wl1, wl2, wl_step * 1000.0),
             "green",
         )
+    print("Computation time = %2.2f s" % (time.time() - starttime))
     cprint("-" * len(title) + "\n", "cyan")
+
+
+def _construct_ft_arr(cube, ncore=8):
+    """Open the model cube and perform a series of roll (both axis) to avoid grid artefact
+    (negative fft values).
+
+    Parameters:
+    -----------
+    `cube` {array}: padded model cube.
+
+    Returns:
+    --------
+    `ft_arr` {array}: complex array of the Fourier transform of the cube,\n
+    `n_ps` {int}: Number of frames,\n
+    `n_pix` {int}: Dimensions of one frames,\n
+
+    """
+    n_pix = cube.shape[1]
+    cube = np.roll(np.roll(cube, n_pix // 2, axis=1), n_pix // 2, axis=2)
+
+    ft_arr = fft.fft2(cube, workers=ncore)
+
+    i_ps = ft_arr.shape
+    n_ps = i_ps[0]
+
+    return ft_arr, n_ps, n_pix
 
 
 def model2grid(
@@ -73,6 +106,8 @@ def model2grid(
     i1=0,
     i2=None,
     light=False,
+    ncore=1,
+    window=None,
 ):
     """Compute grid class from model as fits file cube.
 
@@ -104,6 +139,7 @@ def model2grid(
     """
     hdu = fits.open(modelfile)
     hdr = hdu[0].header
+    starttime = time.time()
 
     n_wl = hdr.get("NAXIS3", 1)
     delta_wl = hdr.get("CDELT3", 0)
@@ -207,26 +243,35 @@ def model2grid(
         model_aligned = np.fliplr(model_aligned)
 
     mod_pad = np.pad(model_aligned, pad_width=((0, 0), padding, padding), mode="edge")
-
     if mod_pad.shape[1] % 2 == 0:
         mod_pad = mod_pad[:, :-1, :-1]
 
     mod_pad = mod_pad / np.max(mod_pad)
 
+    from oimalib.tools import apply_windowing
+
+    # mod_pad = np.array([apply_windowing(x, window=npix//2) for x in mod_pad])
+    mod_pad[mod_pad < 1e-20] = 1e-50
     s = np.shape(mod_pad)
 
-    fft2D = np.fft.fftshift(
-        np.fft.fft2(np.fft.fftshift(mod_pad, axes=[2, 1]), axes=[-2, -1]),
-        axes=[2, 1],
-    )
+    fft2D, n_ps, n_pix = _construct_ft_arr(mod_pad, ncore=ncore)
+    fft2D = np.roll(fft2D, n_pix // 2, axis=1)
+    fft2D = np.roll(fft2D, n_pix // 2, axis=2)
+
     maxi = np.max(np.abs(fft2D), axis=(1, 2))
 
     for i in range(n_image):
         fft2D[i, :, :] = fft2D[i, :, :] / maxi[i]
 
-    freqVect = np.fft.fftshift(np.fft.fftfreq(s[2], pix_size))
+    freqVect = np.fft.fftshift(np.fft.fftfreq(n_pix, pix_size))
+    _print_info_model(wl_model, modelfile, fov, npix, s, starttime)
 
-    _print_info_model(wl_model, modelfile, fov, npix, s)
+    fft2d_real = fft2D.real
+    fft2d_imag = fft2D.imag
+    if window is not None:
+        fft2d_real = np.array([apply_windowing(x, window) for x in fft2d_real])
+        fft2d_imag = np.array([apply_windowing(x, window) for x in fft2d_imag])
+
     if n_wl == 1:
         im3d_real = interp2d(freqVect, freqVect, fft2D.real, kind="cubic")
         im3d_imag = interp2d(freqVect, freqVect, fft2D.imag, kind="cubic")
@@ -234,14 +279,14 @@ def model2grid(
         if method == "linear":
             im3d_real = regip(
                 (wl_model, freqVect, freqVect),
-                [x.T for x in fft2D.real],
+                [x.T for x in fft2d_real],
                 method="linear",
                 bounds_error=False,
                 fill_value=np.nan,
             )
             im3d_imag = regip(
                 (wl_model, freqVect, freqVect),
-                [x.T for x in fft2D.imag],
+                [x.T for x in fft2d_imag],
                 method="linear",
                 bounds_error=False,
                 fill_value=np.nan,
@@ -278,6 +323,7 @@ def model2grid(
             "name": modelname,
             "pad_fact": pad_fact,
             "flux": flux,
+            "npix": s[1],
         }
     hdu.close()
     return dict2class(grid)
@@ -407,12 +453,14 @@ def compute_grid_model(data, grid, verbose=False):
 
 
 def compute_geom_model(data, param, verbose=False):
+    start_time = time.time()
     if type(data) is not list:
         l_data = [data]
     else:
         l_data = data
     start_time = time.time()
     l_mod_v2, l_mod_cp = [], []
+    k = 0
     for data in l_data:
         model_target = select_model(param["model"])
         isValid, log = check_params_model(param)
@@ -433,7 +481,7 @@ def compute_geom_model(data, param, verbose=False):
         for i in range(nbl):
             u, v, wl = data.u[i], data.v[i], data.wl
             mod = comput_V2([u, v, wl], param, model_target)
-            mod_v2[i, :] = mod
+            mod_v2[i, :] = np.squeeze(mod)
 
         mod_cp = np.zeros_like(data.cp)
         for i in range(ncp):
@@ -442,15 +490,98 @@ def compute_geom_model(data, param, verbose=False):
             wl2 = data.wl
             X = [u1, u2, u3, v1, v2, v3, wl2]
             tmp = comput_CP(X, param, model_target)
-            mod_cp[i, :] = tmp
+            mod_cp[i, :] = np.squeeze(tmp)
 
         l_mod_cp.append(mod_cp)
         l_mod_v2.append(mod_v2)
+        k += 1
 
     if verbose:
         print("Execution time compute_geom_model: %2.3f s" % (time.time() - start_time))
 
     return l_mod_v2, l_mod_cp
+
+
+def _compute_geom_model_ind(dataset, param, verbose=False):
+    """Compute interferometric observables all at once (including all spectral
+    channels by using matrix computation."""
+    startime = time.time()
+    Utable = dataset.u
+    Vtable = dataset.v
+    Lambda = dataset.wl
+    nobs = len(Utable) * len(Lambda)
+    model_target = select_model(param["model"])
+    isValid, log = check_params_model(param)
+
+    if not isValid:
+        cprint("\nWrong input parameters for %s model:" % (param["model"]), "green")
+        print(log)
+        cprint(
+            "-" * len("Wrong input parameters for %s model." % (param["model"])) + "\n",
+            "green",
+        )
+        return None
+    # Compute complex visibility (for nbl baselines)
+    # .T added to be in the same order as data (i.e.: [nbl, nwl])
+    cvis = model_target(Utable, Vtable, Lambda, param).T
+
+    vis2 = np.abs(cvis) ** 2
+    vis_amp = np.abs(cvis)
+    vis_phi = np.angle(cvis)
+
+    # Compute bispectrum and closure phases (same for .T)
+    u1, u2, u3 = dataset.u1, dataset.u2, dataset.u3
+    v1, v2, v3 = dataset.v1, dataset.v2, dataset.v3
+    V1 = model_target(u1, v1, Lambda, param)
+    V2 = model_target(u2, v2, Lambda, param)
+    V3 = model_target(u3, v3, Lambda, param)
+    bispectrum = V1 * V2 * V3
+    cp = np.rad2deg(np.arctan2(bispectrum.imag, bispectrum.real)).T
+    endtime = time.time()
+    if verbose:
+        print("Time to compute %i points = %2.2f s" % (nobs, endtime - startime))
+    mod = {"vis2": vis2, "cp": cp, "dvis": vis_amp, "dphi": vis_phi}
+    return mod
+
+
+def parallel_runs(data, param, ncore=4, verbose=False):
+    if type(data) is not list:
+        l_data = [data]
+    else:
+        l_data = data
+    start_time = time.time()
+    pool = multiprocessing.Pool(processes=ncore)
+    prod = partial(_compute_geom_model_ind, param=param)
+    result_list = pool.map(prod, l_data)
+    etime = time.time() - start_time
+    if verbose:
+        print("Execution time compute_geom_model_fast: %2.3f s" % etime)
+    return result_list
+
+
+# def compute_geom_model_fast(data, param, verbose=False):
+#     if type(data) is not list:
+#         l_data = [data]
+#     else:
+#         l_data = data
+#     start_time = time.time()
+
+#     # l_mod_v2, l_mod_cp = [], []
+#     # for dataset in l_data:
+#     #     mod = _compute_geom_model_ind(dataset, param)
+#     #     l_mod_v2.append(mod["vis2"])
+#     #     l_mod_cp.append(mod["cp"])
+#     # l_mod_v2 = np.array(l_mod_v2)
+#     # l_mod_cp = np.array(l_mod_cp)
+
+#     with Pool(5) as p:
+#         l_mod = p.map(_compute_geom_model_ind, l_data, args=(param,))
+#     if verbose:
+#         print(
+#             "Execution time compute_geom_model_fast: %2.3f s"
+#             % (time.time() - start_time)
+#         )
+#     return l_mod  # l_mod_v2, l_mod_cp
 
 
 def decoratortimer(decimal):
@@ -513,7 +644,7 @@ def _compute_dobs_grid_bl(
     # Compute flux on the data resolution
     res_obs = np.diff(d.wl).mean()
     res_model = np.diff(grid.wl).mean()
-    scale_resol = (res_obs / res_model) / 2.355
+    scale_resol = res_obs / res_model
     if scale:
         flux_scale = gaussian_filter1d(grid.flux, sigma=scale_resol)
     else:
@@ -536,3 +667,75 @@ def _compute_dobs_grid_bl(
     }
 
     return dict2class(output)
+
+
+def combine_grid_geom_model_image(
+    wl, grid, param, ampli_factor=1, fh=0, fc=0, fmag=1, fov=3, npts=256
+):
+    fov = mas2rad(fov)
+    bmax = (wl / fov) * npts
+    maxX = rad2mas(wl * npts / bmax) / 2.0
+    xScales = np.linspace(0, 2 * maxX, npts) - maxX
+    pixel_size = rad2mas(fov) / npts
+    extent_ima = (
+        np.array((xScales.max(), xScales.min(), xScales.min(), xScales.max()))
+        + pixel_size / 2.0
+    )
+    pixel_size = rad2mas(fov) / npts  # Pixel size of the image [mas]
+    # # Creat UV coord
+    UVTable = UVGrid(bmax, npts) / 2.0  # Factor 2 due to the fft
+    Utable = UVTable[:, 0]
+    Vtable = UVTable[:, 1]
+
+    model_target = select_model(param["model"])
+
+    vis_disk = model_target(Utable, Vtable, wl, param)
+
+    greal, gimag = grid.real, grid.imag
+    # Extract the specific points (from the data)
+    pts = (wl, Utable / wl, Vtable / wl)
+    vis_mag = greal(pts) + 1j * gimag(pts)
+
+    index_image = np.abs(grid.wl - wl).argmin()
+
+    # Amplify spectral line (mimic temperature increase)
+
+    fs = 1 - fh - fc
+
+    mm = grid.flux.copy() - 1
+    mm[mm > 0] = mm[mm > 0] * ampli_factor
+    mm += 1
+    fmag = fs * mm
+    ftot = fmag + fh + fc
+    ftot = gaussian_filter1d(ftot, sigma=23.0 / 2.355)
+
+    fmag_im = fmag[index_image]
+    ftot_im = ftot[index_image]
+
+    vis = (fmag_im * vis_mag + fc * vis_disk) / (ftot_im)
+
+    print(
+        "Magnetosphere contribution = %2.1f %% (lcr = %2.2f)"
+        % (100 * fmag_im / (fmag_im + fh + fc), mm[index_image])
+    )
+    fwhm_apod = 5e4
+    # Apodisation
+    x, y = np.meshgrid(range(npts), range(npts))
+    freq_max = rad2arcsec(bmax / wl) / 2.0
+    pix_vis = 2 * freq_max / npts
+    freq_map = np.sqrt((x - (npts / 2.0)) ** 2 + (y - (npts / 2.0)) ** 2) * pix_vis
+
+    x = np.squeeze(np.linspace(0, 1.5 * np.sqrt(freq_max ** 2 + freq_max ** 2), npts))
+    y = np.squeeze(np.exp(-(x ** 2) / (2 * (fwhm_apod / 2.355) ** 2)))
+
+    f = interp1d(x, y)
+    img_apod = f(freq_map.flat).reshape(freq_map.shape)
+
+    im_vis = vis.reshape(npts, -1) * img_apod
+    fftVis = np.fft.ifft2(im_vis)
+    image = np.fft.fftshift(abs(fftVis))
+    tmp = np.fliplr(image)
+    image_orient = tmp  # / np.max(tmp)
+    image_orient /= image_orient.sum()
+    image_orient *= ftot_im
+    return image_orient, pixel_size, extent_ima, ftot

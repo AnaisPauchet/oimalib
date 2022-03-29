@@ -78,7 +78,7 @@ def dir2data(filedir, ext="fits"):
     return tab
 
 
-def load(namefile, cam="SC", simu=False):
+def load(namefile, cam="SC", split=False, simu=False, pola=None):
     fitsHandler = fits.open(namefile)
 
     # OI_TARGET table
@@ -87,10 +87,20 @@ def load(namefile, cam="SC", simu=False):
     # OI_WAVELENGTH table
     ins = fitsHandler["OI_WAVELENGTH"].header["INSNAME"]
 
+    try:
+        mjd = fitsHandler[0].header["MJD-OBS"]
+    except KeyError:
+        mjd = np.nan
+
     if "GRAVITY" in ins:
         index_cam = 10
+        if split:
+            index_cam += pola
+
         if cam == "FT":
             index_cam = 20
+            if split:
+                index_cam += pola
     else:
         index_cam = 1
 
@@ -176,10 +186,6 @@ def load(namefile, cam="SC", simu=False):
     e_dphi = fitsHandler["OI_VIS", index_cam].data.field("VISPHIERR")
     flag_dvis = fitsHandler["OI_VIS", index_cam].data.field("FLAG")
 
-    try:
-        mjd = fitsHandler[0].header["MJD-OBS"]
-    except KeyError:
-        mjd = np.nan
     try:
         dat = fitsHandler[0].header["DATE-OBS"]
     except KeyError:

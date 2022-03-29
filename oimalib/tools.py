@@ -15,6 +15,23 @@ from astropy import constants as cs
 from matplotlib import pyplot as plt
 from munch import munchify
 from uncertainties import umath
+from uncertainties import unumpy
+
+
+def cart2pol(x, y):
+    rho = np.sqrt(x ** 2 + y ** 2)
+    phi = np.arctan2(x, y)
+    if np.rad2deg(phi) < 0:
+        phi_deg = 360 + np.rad2deg(phi)
+    else:
+        phi_deg = np.rad2deg(phi)
+    return (rho, phi_deg)
+
+
+def pol2cart(rho, phi):
+    x = rho * np.cos(phi)
+    y = rho * np.sin(phi)
+    return (x, y)
 
 
 def norm(tab):
@@ -184,18 +201,12 @@ def substract_run_med(spectrum, wave=None, n_box=50, shift_wl=0, div=False):
     `shift_wl` can be used to shift wave table to estimate the
     spectral shift w.r.t. the telluric lines.
     """
-    r_med = _running_median(spectrum, n_box)
 
-    boxed_flux = spectrum[n_box // 2 : -n_box // 2 + 1]
-
-    boxed_wave = np.arange(len(boxed_flux))
-    if wave is not None:
-        boxed_wave = wave[n_box // 2 : -n_box // 2 + 1] - shift_wl
-    res = boxed_flux - r_med
-    if div:
-        r_med[r_med == 0] = np.nan
-        res = boxed_flux / r_med
-    return res, boxed_wave
+    lbdBrg = 2.16625
+    inCont = (np.abs(wave - lbdBrg) < 0.1) * (np.abs(wave - lbdBrg) > 0.002)
+    nan_interp(spectrum)
+    normalize_continuum(spectrum, wave, inCont=inCont)
+    return spectrum, wave
 
 
 def hide_xlabel():
@@ -205,6 +216,37 @@ def hide_xlabel():
 
 def plot_vline(x, color="#eab15d"):
     plt.axvline(x, lw=1, color=color, zorder=-1, alpha=0.5)
+
+
+def super_gaussian(x, sigma, m, amp=1, x0=0):
+    sigma = float(sigma)
+    m = float(m)
+    return amp * (
+        (
+            np.exp(
+                -(2 ** (2 * m - 1))
+                * np.log(2)
+                * (((x - x0) ** 2) / ((sigma) ** 2)) ** (m)
+            )
+        )
+        ** 2
+    )
+
+
+def apply_windowing(img, window=80, m=3):
+    isz = len(img)
+    xx, yy = np.arange(isz), np.arange(isz)
+    xx2 = xx - isz // 2
+    yy2 = isz // 2 - yy
+    # Distance map
+    distance = np.sqrt(xx2 ** 2 + yy2[:, np.newaxis] ** 2)
+
+    # Super-gaussian windowing
+    window = super_gaussian(distance, sigma=window * 2, m=m)
+
+    # Apply the windowing
+    img_apod = img * window
+    return img_apod
 
 
 def wtmn(values, weights, axis=0, cons=False):
@@ -232,6 +274,12 @@ def wtmn(values, weights, axis=0, cons=False):
         std_unbias = std
 
     return (mn, std_unbias)
+
+
+def find_nearest(array, value):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    return idx
 
 
 def binning_tab(data, nbox=50, force=False, rel_err=0.01):
@@ -431,3 +479,24 @@ def get_dvis(data, bounds=None):
     }
 
     return munchify(out)
+
+
+def compute_oriented_shift(angle, shift):
+    """Compute the east/north offset from the fitted angle and shift."""
+    north = shift * unumpy.cos(angle * np.pi / 180.0)
+    east = shift * unumpy.sin(angle * np.pi / 180.0)
+    return east, north
+
+
+def combine_dphi_aspro_file(d, ibl, n_per_hour=6, hour=3, cons=False):
+    l_dphi = []
+    l_e_dphi = []
+    for i in np.arange(0, int(6 * n_per_hour * hour), 6):
+        tmp = d.dphi[i + ibl]
+        tmp2 = d.e_dphi[i + ibl]
+        l_dphi.append(tmp)
+        l_e_dphi.append(tmp2)
+    l_dphi = np.array(l_dphi)
+    l_e_dphi = np.array(l_e_dphi)
+    dphi_aver, e_dphi_aver = wtmn(l_dphi, weights=l_e_dphi, cons=cons)
+    return dphi_aver, e_dphi_aver

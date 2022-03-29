@@ -15,6 +15,7 @@ from uncertainties import ufloat
 import oimalib
 from . import complex_models
 from .fit.dpfit import leastsqFit
+from .tools import compute_oriented_shift
 from .tools import mas2rad
 from .tools import round_sci_digit
 
@@ -117,7 +118,7 @@ def check_params_model(param):
         c6 = (lk < -1) | (lk > 1.0)
         c7 = (cj < -1) | (cj > 1.0)
         c8 = (sj < -1) | (sj > 1.0)
-        c9 = (kc < -1) | (kc > 0)
+        c9 = kc < 0
         c10 = (flor < 0) | (flor > 1)
         if c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10:
             log = (
@@ -322,7 +323,7 @@ def model_standard(d, param):
             flag = data.flag_vis2[i]
             if len(vis2[~np.isnan(vis2)]) != 0:
                 u, v, wl = data.u[i], data.v[i], data.wl[~flag]
-                mod_cvis.append(model_target(u, v, wl, param))
+                mod_cvis.append(np.squeeze(model_target(u, v, wl, param)))
         mod_dvis = []
         if "dvis" in fitted:
             for i in range(nbl):
@@ -340,9 +341,10 @@ def model_standard(d, param):
                 v1, v2, v3 = data.v1[i], data.v2[i], data.v3[i]
                 wl = data.wl[~flag]
                 X = [u1, u2, u3, v1, v2, v3, wl]
-                tmp = comput_CP(X, param, model_target)
+                tmp = np.squeeze(comput_CP(X, param, model_target))
                 if len(tmp) != 0:
                     mod_cp.append(tmp)
+        # print(np.shape(mod_cp))
         l_mod_cp.append(np.array(mod_cp, dtype=object))
         l_mod_cvis.append(np.array(mod_cvis, dtype=object))
         l_mod_dvis.append(np.array(mod_dvis, dtype=object))
@@ -1037,3 +1039,255 @@ def get_mcmc_results(sampler, param, fitOnly, burnin=200):
         fit_mcmc["uncer"][fitOnly[i] + "_m"] = q[0]
         fit_mcmc["uncer"][fitOnly[i] + "_p"] = q[1]
     return fit_mcmc
+
+
+def model_flux_blue_excess(x, param):
+    "Double Gaussian model used to fit the spectrum (gravity)"
+    p1 = param["p1"]
+    a1 = param["a1"]
+    w1 = param["w1"]
+    p2 = param["p2"]
+    a2 = param["a2"]
+    w2 = param["w2"]
+    y1 = a1 * np.exp(-0.5 * (x - p1) ** 2 / w1 ** 2)
+    y2 = a2 * np.exp(-0.5 * (x - p2) ** 2 / w2 ** 2)
+    y = y1 + y2
+    return y
+
+
+def model_flux_red_abs(x, param):
+    "Double Gaussian model used to fit the spectrum (gravity)"
+    p1 = param["p1"]
+    a1 = param["a1"]
+    w1 = param["w1"]
+    p2 = param["p2"]
+    a2 = param["a2"]
+    w2 = param["w2"]
+    y1 = a1 * np.exp(-0.5 * (x - p1) ** 2 / w1 ** 2)
+    y2 = a2 * np.exp(-0.5 * (x - p2) ** 2 / w2 ** 2)
+    y = y1 + y2
+    return y
+
+
+def model_flux(x, param):
+    "Gaussian model used to fit the spectrum (gravity)"
+    lbdBrg = param["lbdBrg"]
+    sigBrg = param["sigBrg"]
+    lF = param["lF"]
+    y = lF * np.exp(-0.5 * (x - lbdBrg) ** 2 / sigBrg ** 2)
+    return y
+
+
+def fit_flc_spectra(
+    data,
+    lbdBrg=2.1661,
+    wBrg=0.0005,
+    r_brg=3,
+    red_abs=False,
+    err_cont=True,
+    verbose=False,
+):
+    """Fit the spectral line of GRAVITY (`lbdBrg`) and return the line to
+    continuum ratio `F_lc` (used for pure line visibility computation).
+
+    Parameters:
+    -----------
+    `data` {dict}: Class-like object containing the oifits data from
+    oimalib.load(). Generaly, the flc is computed from an averaged dataset using
+    oimalib.temporal_bin_data(),\n
+    `lbdBrg` {float}: Central wavelength position [µm],\n
+    `wBrg` {float}: width of the line [µm],\n
+    `r_brg` {float}: number of `wBrg` used to determine the in line region.\n
+
+    Returns:
+    -----------
+    `flc` {dict}: dictionnary with `flux` (normalized), `e_flux`, wavelength (`wl` in [µm]), the
+    gaussian fit of the flux (`F_lc`), the fit parameters (`fit`), boolean array
+    containing the continuum region (`inCont`) and in line region (`inLine`).
+
+    """
+    flux = data.flux
+    wl = data.wl * 1e6  # to be in µm
+
+    # Select region of the continuum (avoiding the BrG line)
+    inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
+    inLine = np.abs(wl - lbdBrg) < r_brg * wBrg
+
+    # Normalize the flux to 1
+    oimalib.tools.normalize_continuum(flux, wl, inCont)
+    if err_cont:
+        e_flux = np.std(flux[inCont])
+    else:
+        e_flux = 0.01 * flux.max()
+
+    Y = flux[inLine] - 1  # Shift to zero for gaussian fit
+    X = wl[inLine]
+
+    err = np.ones(len(Y)) * e_flux
+    if not red_abs:
+        param = {"lbdBrg": lbdBrg, "sigBrg": wBrg, "lF": 0.4}
+        name_model = model_flux
+    else:
+        param = {
+            "p1": lbdBrg,
+            "w1": wBrg,
+            "a1": 0.4,
+            "p2": lbdBrg + wBrg,
+            "w2": wBrg / 6.0,
+            "a2": -0.1,
+        }
+        name_model = model_flux_red_abs
+
+    fit = oimalib.fitting.leastsqFit(name_model, X, param, Y, err=err, verbose=verbose)
+    F_lc = name_model(wl, fit["best"]) + 1
+    flc = {
+        "flux": flux,
+        "wl": wl,
+        "e_flux": e_flux,
+        "F_lc": F_lc,
+        "fit": fit,
+        "inCont": inCont,
+        "inLine": inLine,
+        "red_abs": red_abs,
+    }
+    return flc
+
+
+def model_pcshift(x, param):
+    p = param["p"]
+    offset = np.deg2rad(param["offset"])
+    bl_pa = np.deg2rad(x)
+    pc = p * np.cos(offset - bl_pa)
+    if (param["offset"] < 0) or (param["p"] < 0) or (param["offset"] > 360):
+        pc = [np.nan] * len(x)
+    return pc
+
+
+def fit_pc_shift(output_pco, p=0.05):
+    """Fit the photocenter offset across the different baselines (for all
+    wavelength). `p` is the photocenter shift (in µas), `offset` is the initial orientation
+    of this photocenter shift (in degree). `output_pco` is the results from
+    compute_pco_bl().
+    """
+    pco = output_pco["pco"]
+    bl_pa = output_pco["bl_pa"]
+    wl_line = output_pco["wl_line"]
+    nbl = pco.shape[0]
+    nwl = pco.shape[1]
+    l_fit, l_u_x, l_u_y = [], [], []
+    for j in range(nwl):
+        x_pc, y_pc, e_pc = [], [], []
+        for i in range(nbl):
+            x_pc.append(bl_pa[i])
+            x_pc.append(bl_pa[i] - 180.0)
+            y_pc.append(pco[i, j].nominal_value)
+            y_pc.append(-pco[i, j].nominal_value)
+            e_pc.append(pco[i, j].std_dev)
+            e_pc.append(pco[i, j].std_dev)
+        x_pc = np.array(x_pc)
+        y_pc = np.array(y_pc)
+        e_pc = np.array(e_pc)
+
+        chi2_tmp = 1e50
+        for o in np.arange(0, 360, 45):
+            param = {"p": p, "offset": o}
+            fit_tmp = leastsqFit(
+                model_pcshift, x_pc, param, y_pc, err=e_pc, verbose=False
+            )
+            chi2 = fit_tmp["chi2"]
+            if chi2 <= chi2_tmp:
+                fit_pc = fit_tmp
+                chi2_tmp = chi2
+
+        l_fit.append(fit_pc)
+        u_pc = ufloat(fit_pc["best"]["p"] * 1000, fit_pc["uncer"]["p"] * 1000)
+        u_pa = ufloat(fit_pc["best"]["offset"], fit_pc["uncer"]["offset"])
+        east, north = compute_oriented_shift(u_pa, u_pc)
+        l_u_x.append(east)
+        l_u_y.append(north)
+    pcs_east = np.array(l_u_x)
+    pcs_north = np.array(l_u_y)
+    pcs = {
+        "east": pcs_east,
+        "north": pcs_north,
+        "fit_param": l_fit,
+        "wl": output_pco["wl"],
+        "wl_line": wl_line,
+    }
+    return pcs
+
+
+def model_1dgauss_offset(x, param):
+    pos = param["pos"]
+    sigma = param["sigma"]
+    A = param["A"]
+    B = param["B"]
+    y = ((A * np.exp(-0.5 * (x - pos) ** 2 / sigma ** 2)) + 1) - (1 - B)
+    return y
+
+
+def model_1dgauss_offset_double(x, param):
+    pos = param["pos"]
+    dp = param["dp"]
+    sigmaA = param["sigmaA"]
+    sigmaB = param["sigmaB"]
+    A = param["A"]
+    B = param["B"]
+    C = param.get("C", 0)
+    posA = pos - dp
+    posB = pos + dp
+    y1 = A * np.exp(-((x - posA) ** 2) / (2 * sigmaA ** 2))
+    y2 = B * np.exp(-((x - posB) ** 2) / (2 * sigmaB ** 2))
+    y = y1 + y2 + C
+    if (sigmaA >= 0.0015 / 2.355) or (sigmaB > 0.0015 / 2.355):
+        y = [np.nan] * len(y)
+    return y
+
+
+def perform_fit_dvis(wl, dvis, e_dvis, param, double=False):
+    fitOnly = None
+    if not double:
+        fitOnly = ["A", "sigmaA", "pos", "C"]
+        param["B"] = 0
+
+    chi2_tmp = 1e50
+    l_sigma = np.array([0.0001, 0.0005, 0.001]) / 2.355
+
+    for x in l_sigma:
+        param["sigmaA"] = x
+        fit = oimalib.fitting.leastsqFit(
+            model_1dgauss_offset_double,
+            wl,
+            param,
+            dvis,
+            err=e_dvis,
+            fitOnly=fitOnly,
+            verbose=False,
+        )
+        chi2 = fit["chi2"]
+        if not np.isnan(chi2):
+            if chi2 < chi2_tmp:
+                fit_best = fit
+                chi2_tmp = chi2
+
+    mod_dvis = model_1dgauss_offset_double(wl, fit_best["best"])
+    return mod_dvis, fit_best
+
+
+def perform_fit_dphi(wl, dphi, e_dphi, param, double=True):
+    fitOnly = None
+    if not double:
+        fitOnly = ["A", "sigmaA", "pos"]
+        param["B"] = 0
+
+    fit = oimalib.fitting.leastsqFit(
+        model_1dgauss_offset_double,
+        wl,
+        param,
+        dphi,
+        err=e_dphi,
+        fitOnly=fitOnly,
+        verbose=False,
+    )
+    mod_dphi = model_1dgauss_offset_double(wl, fit["best"])
+    return mod_dphi, fit

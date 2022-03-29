@@ -428,7 +428,6 @@ def getBinaryPos(
         plt.xlabel("X [%s]" % unit)
         plt.ylabel("Y [%s]" % unit)
         plt.axis([xmax, xmin, ymin, ymax])
-
         plt.subplot(1, 2, 2)
         plt.plot(
             phase,
@@ -455,14 +454,16 @@ def getBinaryPos(
             plt.plot(
                 phase[cond_prod2], r[cond_prod2], "-", color="#a0522d", lw=4, alpha=0.5
             )
-        plt.hlines(
-            rs,
-            0,
-            1,
-            linestyle="-.",
-            color="#006400",
-            label=r"Threshold d$_{nuc}$ = %2.2f" % rs,
-        )
+
+        if ~np.isnan(rs):
+            plt.hlines(
+                rs,
+                0,
+                1,
+                linestyle="-.",
+                color="#006400",
+                label=r"Threshold d$_{nuc}$ = %2.2f" % rs,
+            )
         plt.legend(loc="best")
         plt.grid(alpha=0.2)
         plt.xlim(0, 1)
