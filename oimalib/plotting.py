@@ -1234,7 +1234,7 @@ def plot_image_model(
         top=0.93, bottom=0.153, left=0.055, right=0.995, hspace=0.24, wspace=0.3
     )
     norm_amp = im_amp / np.max(im_amp)
-    return image_orient, ima_conv_orient, xScales, uv_scale, norm_amp, pixel_size
+    return image_orient#, ima_conv_orient, xScales, uv_scale, norm_amp, pixel_size
 
 
 def plot_spectra(
