@@ -266,4 +266,6 @@ def load(namefile, cam="SC", split=False, simu=False, pola=None):
     }
 
     output = dict2class(dic_output)
+
+        
     return output
