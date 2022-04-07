@@ -344,7 +344,6 @@ def model_standard(d, param):
                 tmp = np.squeeze(comput_CP(X, param, model_target))
                 if len(tmp) != 0:
                     mod_cp.append(tmp)
-        # print(np.shape(mod_cp))
         l_mod_cp.append(np.array(mod_cp, dtype=object))
         l_mod_cvis.append(np.array(mod_cvis, dtype=object))
         l_mod_dvis.append(np.array(mod_dvis, dtype=object))
@@ -377,6 +376,50 @@ def model_standard(d, param):
         model_fast
     else:
         model_fast = [np.nan] * npts
+    return model_fast
+
+
+def model_standard_v2(d, param):
+    l_mod_cp, l_mod_cvis = [], []
+    fitted = param["fitted"]
+
+    mod = oimalib.modelling.compute_geom_model_fast(d, param, ncore=1, use_flag=True)
+
+    npts_flagged = oimalib.get_stat_data(d, verbose=False)
+
+    l_mod_cp = []
+    l_mod_cvis = []
+    for i in range(len(mod)):
+        m = mod[i]
+        good_cp = m["good_cp"]
+        good_bl = m["good_bl"]
+        flag_cp = d[i].flag_cp.take(good_cp, axis=0)
+        flag_vis2 = d[i].flag_vis2.take(good_bl, axis=0)
+        l_mod_cp.append(m["cp"][~flag_cp])
+        l_mod_cvis.append(m["cvis"][~flag_vis2])
+    l_mod_cp = np.array(l_mod_cp)
+    l_mod_cvis = np.array(l_mod_cvis)
+
+    model_fast = []
+    for i in range(len(mod)):
+        cvis = l_mod_cvis[i]
+        cvis_flat = np.hstack(cvis.flatten())
+        cp = l_mod_cp[i]
+        cp_flat = np.hstack(cp.flatten())
+        if "V2" in fitted:
+            model_fast += list(np.abs(cvis_flat) ** 2)
+        if "dvis" in fitted:
+            model_fast += list(np.abs(cvis_flat))
+        if "dphi" in fitted:
+            model_fast += list(np.angle(cvis_flat, deg=True))
+        if "CP" in fitted:
+            model_fast += list(cp_flat)
+    model_fast = np.array(model_fast)
+    isValid = check_params_model(param)[0]
+    if isValid:
+        model_fast
+    else:
+        model_fast = [np.nan] * npts_flagged
     return model_fast
 
 
@@ -563,6 +606,7 @@ def smartfit(
     epsfcn=1e-7,
     normalizeErrors=False,
     scale_err=1,
+    fast=True,
     verbose=False,
     tobefit=None,
 ):
@@ -604,7 +648,7 @@ def smartfit(
         except Exception:
             pass
 
-    obs = np.concatenate([oimalib.format_obs(x) for x in data])
+    obs = np.concatenate([oimalib.format_obs(x, use_flag=True) for x in data])
     save_obs = obs.copy()
     obs = []
     for o in save_obs:
@@ -619,14 +663,17 @@ def smartfit(
     Y = [o[2] for o in obs]
 
     npts = len(Y)
-
     npts_good_check = get_stat_data(data, verbose=False)
     if npts_good_check != npts:
         print("Npts data = %i (should be %i)" % (npts, npts_good_check))
         # return None
 
+    if fast:
+        fct_model = model_standard_v2
+    else:
+        fct_model = model_standard
     lfit = leastsqFit(
-        model_standard,
+        fct_model,
         data,
         first_guess,
         Y,
@@ -697,7 +744,7 @@ def _compute_uvcoord(data):
     return output
 
 
-def format_obs(data, use_flag=True, input_rad=False, verbose=False):
+def format_obs(data, use_flag=False, input_rad=False, verbose=False):
     nwl = len(data.wl)
     nbl = data.vis2.shape[0]
     ncp = data.cp.shape[0]
@@ -810,7 +857,7 @@ def _compute_model_mcmc(p_mcmc, data, param, fitOnly, tobefit):
     for i, p in enumerate(fitOnly):
         param[p] = p_mcmc[i]
     param["fitted"] = tobefit
-    model = model_standard(data, param)
+    model = model_standard_v2(data, param)
     return np.array(model)
 
 
@@ -941,8 +988,8 @@ def mcmcfit(
     ndim = len(fitOnly)
     if tobefit is None:
         tobefit = ["V2", "CP"]
-    obs = np.concatenate([oimalib.format_obs(x) for x in data])
 
+    obs = np.concatenate([oimalib.format_obs(x, use_flag=True) for x in data])
     save_obs = obs.copy()
     obs = []
     for o in save_obs:
