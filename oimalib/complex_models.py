@@ -1680,3 +1680,5 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     vis = Fpwhl[:, None] * Vpwhl + vis_OB + vis_WR
 
     return vis
+
+    
