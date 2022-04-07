@@ -30,7 +30,7 @@ from oimalib.fitting import model_flux_red_abs
 from oimalib.fitting import model_pcshift
 from oimalib.fitting import select_model
 from oimalib.fourier import UVGrid
-from oimalib.modelling import compute_geom_model
+from oimalib.modelling import compute_geom_model_fast
 from oimalib.tools import find_nearest
 from oimalib.tools import hide_xlabel
 from oimalib.tools import mas2rad
@@ -637,7 +637,12 @@ def plot_residuals(
 def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     if fitOnly is None:
         fitOnly = []
-    mod_v2 = compute_geom_model(data, param)[0]
+    # mod_v2 = compute_geom_model(data, param)[0]
+
+    l_mod = compute_geom_model_fast(data, param)
+    mod_v2 = []
+    for i in range(len(l_mod)):
+        mod_v2.append(l_mod[i]["vis2"])
 
     input_keys = ["vis2", "e_vis2", "freq_vis2", "wl", "blname", "set", "flag_vis2"]
 
@@ -687,7 +692,7 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     if hue == "wl":
         label = "Wavelenght [µm]"
 
-    fig = plt.figure(constrained_layout=False, figsize=(7, 5))
+    fig = plt.figure(constrained_layout=False, figsize=(7, 7))
     axd = fig.subplot_mosaic(
         [["vis2"], ["res_vis2"]],
         gridspec_kw={"height_ratios": [3, 1]},
@@ -754,7 +759,13 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
 def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     if fitOnly is None:
         fitOnly = []
-    mod_cp = compute_geom_model(data, param)[1]
+    # mod_cp = compute_geom_model(data, param)[1]
+
+    l_mod = compute_geom_model_fast(data, param, use_flag=False)
+    mod_cp = []
+    for i in range(len(l_mod)):
+        mod_cp.append(l_mod[i]["cp"])
+
     input_keys = ["cp", "e_cp", "freq_cp", "wl", "cpname", "set", "flag_cp"]
 
     dict_obs = {}
@@ -801,7 +812,7 @@ def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     if np.max(abs(df["res"])) >= 5:
         res_max = abs(df["res"]).max() * 1.2
 
-    fig = plt.figure(constrained_layout=False, figsize=(7, 5))
+    fig = plt.figure(constrained_layout=False, figsize=(7, 7))
     axd = fig.subplot_mosaic(
         [["cp"], ["res_cp"]],
         gridspec_kw={"height_ratios": [3, 1]},
@@ -1018,6 +1029,7 @@ def plot_image_model(
     apod=False,
     corono=False,
     expert_plot=False,
+    verbose=False,
 ):
     """
     Make the image of the `multiCompoPwhl` function.
@@ -1082,7 +1094,9 @@ def plot_image_model(
 
     wl_array = np.array([wl])
     if param["model"] == "pwhl":
-        vis = model_target(Utable, Vtable, wl_array, param, expert_plot=expert_plot)
+        vis = model_target(
+            Utable, Vtable, wl_array, param, expert_plot=expert_plot, verbose=verbose
+        )
     else:
         vis = model_target(Utable, Vtable, wl_array, param)
 

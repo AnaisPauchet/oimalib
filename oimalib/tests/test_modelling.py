@@ -355,7 +355,7 @@ def test_model_pwhl(example_oifits_rmat):
     assert np.shape(mod_cp)[1] == ncp
 
 
-@pytest.mark.parametrize("ncore", [1, 2])
+@pytest.mark.parametrize("ncore", [1])
 def test_model_fast(example_oifits_rmat, ncore):
     d = oimalib.load(example_oifits_rmat)
     fake_list_d = [d, d, d]
