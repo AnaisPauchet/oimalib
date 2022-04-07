@@ -6,6 +6,7 @@ Created on Wed Nov  4 13:14:23 2015
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import special
+from scipy.ndimage import gaussian_filter1d
 from termcolor import cprint
 
 from .binary import getBinaryPos
@@ -153,9 +154,6 @@ def visBinary(Utable, Vtable, Lambda, param):
     sep = mas2rad(param["sep"])
     dm = param["dm"]
     theta = np.deg2rad(90 - param["pa"])
-
-    if dm < 0:
-        return np.array([np.nan] * len(Lambda))
 
     f1 = 1
     f2 = f1 / (2.512 ** dm)
@@ -1133,17 +1131,11 @@ def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
 
     dst = r * theta
 
-    # opti = True
-    # if opti:
-    #     # optimal number of ring
-    #     step1 = abs(np.diff(dst % (thick / fillFactor))
-    #                 ) > (thick / fillFactor / 2.0)
-    #     step1 = np.concatenate((step1, np.array([True])))
-
+    proj_fact = np.cos(alpha / 2.0)
     step1 = np.array([True] * N)
     # Add the dust sublimation radius
     if r_nuc != 0:
-        step1[(r <= r_nuc / np.cos(alpha / 2.0))] = False
+        step1[(r <= r_nuc / proj_fact)] = False
 
     step1[~cond_prod] = False
     step2 = np.array(list(step1))
@@ -1217,17 +1209,30 @@ def sed_pwhl(wl, mjd, param, verbose=True, display=True):
     q = param["q"]
     Tr = Tin * (dmas / rad2mas(r_nuc)) ** (-q)
 
+    gap_dist = param.get("gap_dist", 1)
+
+    beta = 3e-12
     spec = []
     for xx in wl:
+        gap_factor2 = param.get("gap_factor2", 1)
+        T_smoother = param.get("T_smoother", 1)
         l_Tr = Tr.copy()
-        l_Tr[dmas >= np.cos(alpha / 2.0) * rad2mas(step)] /= param["gap_factor"]
-        spectrumi = param["f_scale_pwhl"] * planck_law(l_Tr, xx)
+        l_Tr[dmas >= gap_dist * rad2mas(step)] /= param["gap_factor"]
+        l_Tr = gaussian_filter1d(l_Tr, T_smoother)
+        l_Tr[dmas >= gap_dist * 2 * rad2mas(step)] /= gap_factor2
+        l_Tr = gaussian_filter1d(l_Tr, T_smoother / 2.0)
+        i_flux = planck_law(l_Tr, xx)
+        i_flux_jy = (i_flux * xx ** 2) / beta
+        spectrumi = param["f_scale_pwhl"] * i_flux_jy
+        spectrumi[0] *= 15
         spec.append(spectrumi)
 
     wl_sed = np.logspace(-7, -3.5, 1000)
     spec_all, spec_all1, spec_all2 = [], [], []
     for i in range(len(l_Tr)):
-        spectrum_r = param["f_scale_pwhl"] * planck_law(l_Tr[i], wl_sed)
+        i_flux = planck_law(l_Tr[i], wl_sed)
+        i_flux_jy = (i_flux * wl_sed ** 2) / beta
+        spectrum_r = param["f_scale_pwhl"] * i_flux_jy
         spec_all.append(spectrum_r)
         if dmas[i] >= np.cos(alpha / 2.0) * rad2mas(step):
             spec_all2.append(spectrum_r)
@@ -1268,11 +1273,6 @@ def sed_pwhl(wl, mjd, param, verbose=True, display=True):
         plt.xlabel("Wavelength [µm]")
         plt.ylabel("Blackbodies flux [arbitrary unit]")
 
-        plt.figure()
-        plt.plot(dmas, l_Tr)
-        plt.xlabel("Distance [mas]")
-        plt.ylabel("Temperature [K]")
-
     if verbose:
         print("Temperature law: r0 = %2.2f mas, T0 = %i K" % (dmas[0], Tr[0]))
 
@@ -1296,7 +1296,6 @@ def visSpiralTemp(
     mjd,
     param,
     spec=None,
-    fillFactor=20,
     verbose=True,
     display=True,
 ):
@@ -1376,7 +1375,6 @@ def visSpiralTemp(
         Tin = param["T_sub"]
         q = param["q"]
         Tr = Tin * (dmas / rad2mas(r_nuc)) ** (-q)
-
         if verbose:
             print("Temperature law: r0 = %2.2f mas, T0 = %i K" % (dmas[0], Tr[0]))
         spectrumi = spec
@@ -1423,10 +1421,12 @@ def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
         else:
             print("Model not yet in VisModels")
         spec2 = spec[i]
+        ampli = 1
+        if i < 3:
+            spec2 *= ampli
+
         corrFluxTmp[i, :, :] = spec2 * Ci
-        # Ci2 = Ci.reshape(1, np.size(Ci))
-        # corrFluxTmp += np.dot(spec2, Ci2)
-        # corrFluxTmp += Ci
+
     corrFlux = corrFluxTmp.sum(axis=0)
     flux = np.sum(spec, 0)
     try:
@@ -1453,13 +1453,14 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     taken from the spiral contribution.
     """
 
+    # param = param2.copy()
     mjd = param["mjd"]  # 50000.0
     phase = (mjd - param["mjd0"]) / param["P"] % 1
     if verbose:
         s = "Model pinwheel S = {:2.1f} mas, phase = {:1.2f} @ {:2.2f} µm:".format(
             param["step"],
             phase,
-            Lambda * 1e6,
+            Lambda[0] * 1e6,
         )
         cprint(s, "cyan")
         cprint("-" * len(s), "cyan")
@@ -1643,16 +1644,16 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     Fstar = P_star / P_tot
     Fpwhl = P_dust / P_tot
 
-    # Gaussian disk background
+    # halo background
     # --------------------------------------------------------------------------
     if "contrib_halo" in list(param.keys()):
-        Fshell = param["contrib_halo"] / 100.0
-        Fpwhl -= Fshell
+        Fhalo = param["contrib_halo"] / 100.0
+        Fpwhl -= Fhalo
 
     if verbose:
         print(
             "Relative component fluxes: Fstar = %2.3f %%; Fpwhl = %2.3f %%, Fenv = %2.3f %%"
-            % (100 * Fstar, 100 * Fpwhl, 100 * Fshell)
+            % (100 * Fstar, 100 * Fpwhl, 100 * Fhalo)
         )
 
     # # Visibility
@@ -1677,6 +1678,8 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     vis_OB = p_OB * Fstar[:, None] * visPointSource(Utable, Vtable, wl, param_star_O)
     vis_WR = p_WR * Fstar[:, None] * visPointSource(Utable, Vtable, wl, param_star_WR)
 
-    vis = Fpwhl[:, None] * Vpwhl + vis_OB + vis_WR
+    ftot = Fstar + Fpwhl + Fhalo
+
+    vis = (Fpwhl[:, None] * Vpwhl + vis_OB + vis_WR) / ftot[:, None]
 
     return vis
