@@ -40,11 +40,13 @@ def test_uvline():
 def test_smartfit(example_oifits_grav):
     data = [oimalib.load(example_oifits_grav, cam="SC", simu=True)]
     fitOnly = ["dm", "sep", "pa"]
-    param = {"model": "binary", "x0": 0, "y0": 0, "sep": 3, "pa": 45, "dm": 3}
+    param = {"model": "binary", "x0": 0, "y0": 0, "sep": 2, "pa": 55, "dm": 3}
 
     oimalib.get_stat_data(data)
 
-    fit = oimalib.smartfit(data, param, normalizeErrors=True, fitOnly=fitOnly)
+    fit = oimalib.smartfit(
+        data, param, normalizeErrors=True, fitOnly=fitOnly, verbose=True
+    )
 
     # Human checked values
     true_sep, true_pa, true_dm = 3.0, 45, 3.0
@@ -70,7 +72,7 @@ def test_smartfit_withflag(example_oifits_rmat, choice):
     data = [oimalib.load(example_oifits_rmat)]
     fitOnly = ["dm", "sep", "pa"]
     param = {"model": "binary", "x0": 0, "y0": 0, "sep": 3, "pa": 45, "dm": 3}
-    tobefit = ["V2", "CP"]  # , "dphi", "dvis"]
+    tobefit = ["V2", "CP"]
     fit = oimalib.smartfit(
         data,
         param,
@@ -86,7 +88,7 @@ def test_smartfit_hr(example_oifits_rgrav):
     data = [oimalib.load(example_oifits_rgrav)]
     fitOnly = ["dm", "sep", "pa"]
     param = {"model": "binary", "x0": 0, "y0": 0, "sep": 3, "pa": 45, "dm": 3}
-    tobefit = ["V2", "CP"]  # , "dphi", "dvis"]
+    tobefit = ["V2", "CP"]
     fit = oimalib.smartfit(data, param, tobefit=tobefit, fitOnly=fitOnly, verbose=True)
     assert isinstance(fit, dict)
 

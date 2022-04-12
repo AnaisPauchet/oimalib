@@ -35,6 +35,49 @@ from oimalib.tools import rad2arcsec
 from oimalib.tools import rad2mas
 
 
+def _check_good_tel(list_data, verbose=True):
+    """Check if one telescope if down in the list of dataset."""
+    data_ref = list_data[0]
+    blname = data_ref.blname
+    nbl = len(blname)
+
+    l_bad = []
+    for i in range(nbl):
+        dvis = data_ref.dvis[i]
+        cond_nan = np.isnan(dvis)
+        d_vis_sel = dvis[~cond_nan]
+        if len(d_vis_sel) == 0:
+            l_bad.append(blname[i])
+
+    if len(l_bad) != 0:
+        if verbose:
+            print("\n## Warning: only nan detected in baselines:", l_bad)
+
+    i_bl_bad = np.zeros(len(list_data[0].tel))
+    l_tel = list(set(list_data[0].tel))
+
+    if len(l_bad) != 0:
+        for bad in l_bad:
+            for i, tel in enumerate(l_tel):
+                if tel in bad:
+                    i_bl_bad[i] += 1
+
+    nbad = len(i_bl_bad)
+    max_bad = np.max(i_bl_bad)
+
+    exclude_tel = []
+    if len(l_bad) != 0:
+        exclude_tel = [l_tel[i] for i in range(nbad) if i_bl_bad[i] == max_bad]
+
+    if len(l_bad) != 0:
+        if verbose:
+            print(
+                "-> so telescopes seem to be down and are automaticaly excluded:",
+                exclude_tel,
+            )
+    return exclude_tel, l_tel
+
+
 def _print_info_model(wl_model, modelfile, fov, npix, s, starttime):
     nwl = len(wl_model)
     if nwl == 1:
@@ -138,12 +181,17 @@ def model2grid(
             - 'name': file name of the model.\n
     """
     hdu = fits.open(modelfile)
-    hdr = hdu[0].header
+    try:
+        hdr = hdu[0].header
+        npix = hdr["NAXIS1"]
+    except KeyError:
+        hdr = hdu["IMAGE"].header
     starttime = time.time()
 
     n_wl = hdr.get("NAXIS3", 1)
     delta_wl = hdr.get("CDELT3", 0)
 
+    print(n_wl)
     if wl_user is not None:
         wl0 = wl_user
         if type(wl_user) is float or np.float64:
@@ -189,6 +237,8 @@ def model2grid(
             pix_size = abs(hdr["CDELT1"]) * scale
         elif unit == "deg":
             pix_size = np.deg2rad(abs(hdr["CDELT1"])) * scale
+        elif unit == "mas":
+            pix_size = mas2rad(abs(hdr["CDELT1"])) * scale
         else:
             print("Wrong unit in CDELT1 header.")
     except KeyError:
@@ -219,10 +269,16 @@ def model2grid(
 
     padding = pad_fact * np.array([npix // 2, npix // 2])
     padding = padding.astype(int)
-    if len(hdu[0].data) != 1:
-        image_input = hdu[0].data[i1:i2]
-    else:
-        image_input = hdu[0].data
+    try:
+        if len(hdu[0].data) != 1:
+            image_input = hdu[0].data[i1:i2]
+        else:
+            image_input = hdu[0].data
+    except TypeError:
+        if len(hdu["IMAGE"].data) != 1:
+            image_input = hdu["IMAGE"].data[i1:i2]
+        else:
+            image_input = hdu["IMAGE"].data
 
     flux = []
     for _ in image_input:
@@ -302,6 +358,8 @@ def model2grid(
         sign = np.sign(hdr["CDELT1"])
     except KeyError:
         sign = 1.0
+
+    # if fliplr:
     if light:
         grid = {
             "real": im3d_real,
@@ -375,7 +433,7 @@ def _compute_grid_model_chromatic(data, grid, verbose=False):
                     cvis_2 = greal([wl, u2m, v2m]) + 1j * gimag([wl, u2m, v2m])
                     cvis_3 = greal([wl, u3m, v3m]) + 1j * gimag([wl, u3m, v3m])
                     bispec = np.array(cvis_1) * np.array(cvis_2) * np.array(cvis_3)
-                    cp = np.rad2deg(np.arctan2(bispec.imag, bispec.real))
+                    cp = grid.sign * np.rad2deg(np.arctan2(bispec.imag, bispec.real))
                 else:
                     cp = np.nan
                 mod_cp[i, j] = cp
@@ -502,7 +560,9 @@ def compute_geom_model(data, param, verbose=False):
     return l_mod_v2, l_mod_cp
 
 
-def _compute_geom_model_ind(dataset, param, verbose=False):
+def _compute_geom_model_ind(
+    dataset, param, compute_cp=True, use_flag=False, verbose=False
+):
     """Compute interferometric observables all at once (including all spectral
     channels) by using matrix computation. `dataset` corresponds to an individual
     fits file (from oimalib.load())."""
@@ -512,40 +572,91 @@ def _compute_geom_model_ind(dataset, param, verbose=False):
     Lambda = dataset.wl
     nobs = len(Utable) * len(Lambda)
     model_target = select_model(param["model"])
-    isValid, log = check_params_model(param)
+    isValid = check_params_model(param)[0]
 
-    if not isValid:
-        cprint("\nWrong input parameters for %s model:" % (param["model"]), "green")
-        print(log)
-        cprint(
-            "-" * len("Wrong input parameters for %s model." % (param["model"])) + "\n",
-            "green",
-        )
-        return None
-    # Compute complex visibility (for nbl baselines)
-    # .T added to be in the same order as data (i.e.: [nbl, nwl])
-    cvis = model_target(Utable, Vtable, Lambda, param).T
+    # Find telescope down or problem with one baseline (only nan)
+    try:
+        exclude_tel = _check_good_tel([dataset], verbose=False)[0]
+    except ValueError:
+        exclude_tel = []
 
+    if not use_flag:
+        exclude_tel = []
+
+    # Compute index of good bl and cp
+    if len(exclude_tel) == 0:
+        good_cp = np.arange(len(dataset.u1))
+        good_bl = np.arange(len(dataset.u))
+    else:
+        good_cp = []
+        good_bl = []
+        cp_name = dataset.cpname
+        for i in range(len(cp_name)):
+            for bad in exclude_tel:
+                if bad not in cp_name[i]:
+                    good_cp.append(i)
+        for i in range(len(Utable)):
+            for bad in exclude_tel:
+                if bad not in dataset.blname[i]:
+                    good_bl.append(i)
+
+    # Select only for good baselines (deal if one telescope down for instance)
+    Utable = Utable.take(good_bl)
+    Vtable = Vtable.take(good_bl)
+
+    # Add try to use the visPwhl model that requires verbose
+    try:
+        cvis = model_target(Utable, Vtable, Lambda, param, verbose=verbose).T
+    except TypeError:
+        cvis = model_target(Utable, Vtable, Lambda, param).T
+    # Compute quantities
     vis2 = np.abs(cvis) ** 2
     vis_amp = np.abs(cvis)
     vis_phi = np.angle(cvis)
 
-    # Compute bispectrum and closure phases (same for .T)
-    u1, u2, u3 = dataset.u1, dataset.u2, dataset.u3
-    v1, v2, v3 = dataset.v1, dataset.v2, dataset.v3
-    V1 = model_target(u1, v1, Lambda, param)
-    V2 = model_target(u2, v2, Lambda, param)
-    V3 = model_target(u3, v3, Lambda, param)
-    bispectrum = V1 * V2 * V3
-    cp = np.rad2deg(np.arctan2(bispectrum.imag, bispectrum.real)).T
+    if compute_cp:
+        # Compute bispectrum and closure phases (same for .T)
+        u1, u2, u3 = dataset.u1, dataset.u2, dataset.u3
+        v1, v2, v3 = dataset.v1, dataset.v2, dataset.v3
+        V1 = model_target(u1.take(good_cp), v1.take(good_cp), Lambda, param)
+        V2 = model_target(u2.take(good_cp), v2.take(good_cp), Lambda, param)
+        V3 = model_target(u3.take(good_cp), v3.take(good_cp), Lambda, param)
+        bispectrum = V1 * V2 * V3
+        cp = np.rad2deg(np.arctan2(bispectrum.imag, bispectrum.real)).T
+    else:
+        cp = None
     endtime = time.time()
+
+    isValid = check_params_model(param)[0]
+    if not isValid:
+        vis2 = np.zeros_like(vis2)
+        vis2[vis2 == 0] = np.nan
+        cp = np.zeros_like(cp)
+        cp[cp == 0] = np.nan
+        vis_amp = np.zeros_like(vis_amp)
+        vis_amp[vis_amp == 0] = np.nan
+        vis_phi = np.zeros_like(vis_phi)
+        vis_phi[vis_phi == 0] = np.nan
+        cvis = np.zeros_like(cvis)
+        cvis[cvis == 0] = np.nan
+
     if verbose:
         print("Time to compute %i points = %2.2f s" % (nobs, endtime - startime))
-    mod = {"vis2": vis2, "cp": cp, "dvis": vis_amp, "dphi": vis_phi}
+    mod = {
+        "vis2": vis2,
+        "cp": cp,
+        "dvis": vis_amp,
+        "dphi": vis_phi,
+        "cvis": cvis,
+        "good_bl": good_bl,
+        "good_cp": good_cp,
+    }
     return mod
 
 
-def compute_geom_model_fast(data, param, ncore=1, verbose=False):
+def compute_geom_model_fast(
+    data, param, ncore=1, compute_cp=True, use_flag=False, verbose=False
+):
     """Compute interferometric observables using the matrix method (faster)
     for a list of data (type(data) == list) or only one file (type(data) ==
     dict). The multiple dataset can be computed in parallel if `ncore` > 1."""
@@ -554,10 +665,24 @@ def compute_geom_model_fast(data, param, ncore=1, verbose=False):
     else:
         l_data = data
     start_time = time.time()
-    pool = multiprocessing.Pool(processes=ncore)
-    prod = partial(_compute_geom_model_ind, param=param)
-    result_list = pool.map(prod, l_data)
-    pool.close()
+
+    if ncore == 1:
+        result_list = [
+            _compute_geom_model_ind(
+                x, param=param, compute_cp=compute_cp, use_flag=use_flag
+            )
+            for x in l_data
+        ]
+    else:
+        pool = multiprocessing.Pool(processes=ncore)
+        prod = partial(
+            _compute_geom_model_ind,
+            param=param,
+            compute_cp=compute_cp,
+            use_flag=use_flag,
+        )
+        result_list = pool.map(prod, l_data)
+        pool.close()
     etime = time.time() - start_time
     if verbose:
         print("Execution time compute_geom_model_fast: %2.3f s" % etime)

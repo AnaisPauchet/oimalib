@@ -20,4 +20,4 @@ from .plotting import plot_residuals
 from .plotting import plot_spectra
 from .plotting import plot_uv
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
