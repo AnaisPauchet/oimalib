@@ -743,7 +743,7 @@ def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     axd["res_vis2"].axhspan(-1, 1, alpha=0.6, color="#418fde")
     axd["res_vis2"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
     axd["res_vis2"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
-    axd["res_vis2"].set_ylim(-5, 5)
+    #axd["res_vis2"].set_ylim(-5, 5)
 
     axd["vis2"].tick_params(
         axis="x",  # changes apply to the x-axis
