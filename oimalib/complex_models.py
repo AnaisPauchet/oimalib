@@ -9,13 +9,13 @@ from scipy import special
 from scipy.ndimage import gaussian_filter1d
 from termcolor import cprint
 
-from .binary import getBinaryPos
-from .binary import kepler_solve
-from .fourier import shiftFourier
-from .tools import computeBinaryRatio
-from .tools import mas2rad
-from .tools import planck_law
-from .tools import rad2mas
+from oimalib.binary import getBinaryPos
+from oimalib.binary import kepler_solve
+from oimalib.fourier import shiftFourier
+from oimalib.tools import computeBinaryRatio
+from oimalib.tools import mas2rad
+from oimalib.tools import planck_law
+from oimalib.tools import rad2mas
 
 
 def _elong_gauss_disk(u, v, a=1.0, cosi=1.0, pa=0.0):
@@ -1454,6 +1454,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     """
 
     # param = param2.copy()
+    param = param.copy()
     mjd = param["mjd"]  # 50000.0
     phase = (mjd - param["mjd0"]) / param["P"] % 1
     if verbose:
