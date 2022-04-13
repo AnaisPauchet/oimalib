@@ -13,11 +13,11 @@ from tqdm import tqdm
 from uncertainties import ufloat
 
 import oimalib
-from . import complex_models
-from .fit.dpfit import leastsqFit
-from .tools import compute_oriented_shift
-from .tools import mas2rad
-from .tools import round_sci_digit
+from oimalib import complex_models
+from oimalib.fit.dpfit import leastsqFit
+from oimalib.tools import compute_oriented_shift
+from oimalib.tools import mas2rad
+from oimalib.tools import round_sci_digit
 
 if sys.platform == "darwin":
     multiprocessing.set_start_method("fork", force=True)
@@ -216,6 +216,29 @@ def check_params_model(param):
         c6 = (flor < 0) | (flor > 1)
         if c1 | c2 | c3 | c4 | c5 | c6:
             log = "# cosi <= 1,\n# hfr > 0 mas,\n# 0 < pa < 180 deg."
+            isValid = False
+
+    elif param['model'] == 'pwhl' :
+        incl = param["incl"]
+        angle_0 = param["angle_0"]
+        q = param["q"]
+        opening_angle = param["opening_angle"]
+        r_nuc = param['r_nuc']
+
+
+        c1 = (incl > 90.0) | (incl < 0)
+        c2 = (angle_0 > 360) | (angle_0 < 0)
+        c3 = (q > 1) | (q < 0)
+        c4 = (opening_angle > 180) | (opening_angle < 0)
+        c5 = (r_nuc > 100) | (r_nuc < 0)
+        if c1 | c2 | c3 | c4 | c5 :
+            log = (
+                 "# 0 < incl < 90,\n"
+                + "# 0 < angle_0 < 360 deg,\n"
+                + "# 0 < q < 1. ,\n"
+                + "# 0 < opening_angle < 180 \n"
+                + "# 0 < r_nuc < 100.\n"
+            )
             isValid = False
 
     return isValid, log
