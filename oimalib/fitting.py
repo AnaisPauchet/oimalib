@@ -226,14 +226,14 @@ def check_params_model(param):
         r_nuc = param['r_nuc']
 
 
-        c1 = (incl > 90.0) | (incl < 0)
+        c1 = (incl > 360.0) | (incl < 0)
         c2 = (angle_0 > 360) | (angle_0 < 0)
         c3 = (q > 1) | (q < 0)
         c4 = (opening_angle > 180) | (opening_angle < 0)
         c5 = (r_nuc > 100) | (r_nuc < 0)
         if c1 | c2 | c3 | c4 | c5 :
             log = (
-                 "# 0 < incl < 360,\n"
+                 "# 0 < incl < 360 deg,\n"
                 + "# 0 < angle_0 < 360 deg,\n"
                 + "# 0 < q < 1. ,\n"
                 + "# 0 < opening_angle < 180 \n"
