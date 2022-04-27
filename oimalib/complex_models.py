@@ -1468,7 +1468,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         cprint("-" * len(s), "cyan")
 
     angle_0 = param["angle_0"]
-    angle_0_bis = (angle_0 - param['angleSky']) * -1
+    angle_0_bis = (angle_0 + param['angleSky']) * -1
 
     # -= 90  # Switch reference to the NORTH
     param["angle_0"] = angle_0_bis
