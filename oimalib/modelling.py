@@ -669,7 +669,7 @@ def compute_geom_model_fast(
     if ncore == 1:
         result_list = [
             _compute_geom_model_ind(
-                x, param=param, compute_cp=compute_cp, use_flag=use_flag
+                x, param=param, compute_cp=compute_cp, use_flag=use_flag, verbose = verbose
             )
             for x in l_data
         ]
@@ -679,7 +679,7 @@ def compute_geom_model_fast(
             _compute_geom_model_ind,
             param=param,
             compute_cp=compute_cp,
-            use_flag=use_flag,
+            use_flag=use_flag, verbose = verbose
         )
         result_list = pool.map(prod, l_data)
         pool.close()
