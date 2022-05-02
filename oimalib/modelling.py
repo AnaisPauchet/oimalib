@@ -570,6 +570,7 @@ def _compute_geom_model_ind(
     Utable = dataset.u
     Vtable = dataset.v
     Lambda = dataset.wl
+    param['mjd'] = dataset.info['mjd']
     nobs = len(Utable) * len(Lambda)
     model_target = select_model(param["model"])
     isValid = check_params_model(param)[0]
