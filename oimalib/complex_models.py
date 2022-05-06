@@ -1457,7 +1457,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     param = param.copy()
     mjd = param["mjd"]  # 50000.0
     phase = (mjd - param["mjd0"]) / param["P"] % 1
-    angleSky = param['angleSky'] + phase * 360
+    param["angleSky"] = param['angleSky'] + phase * 360
     if verbose:
         s = "Model pinwheel S = {:2.1f} mas, phase = {:1.2f} @ {:2.2f} µm:".format(
             param["step"],
@@ -1468,7 +1468,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         cprint("-" * len(s), "cyan")
 
     angle_0 = param["angle_0"]
-    angle_0_bis = (angle_0 + angleSky - 0) * -1
+    angle_0_bis = (angle_0 + param['angleSky'] - 0) * -1
 
     # -= 90  # Switch reference to the NORTH
     param["angle_0"] = angle_0_bis
