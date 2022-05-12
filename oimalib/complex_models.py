@@ -237,12 +237,12 @@ def visEllipticalUniformDisk(Utable, Vtable, Lambda, param):
 
     # List of parameter
     #elong = np.cos(np.deg2rad(param["incl"]))
-    majorAxis = mas2rad(param["majorAxis"])
-    minorAxis = mas2rad(param["minorAxis"])
+    majorAxis = param["majorAxis"]
+    minorAxis = param["minorAxis"]
     #minorAxis = elong * majorAxis
     angle = np.deg2rad(param["angle"])
-    x0 = mas2rad(param["x0"])
-    y0 = mas2rad(param["y0"])
+    x0 = param["x0"]
+    y0 = param["y0"]
 
     r = np.sqrt(
         ((u * np.sin(angle) + v * np.cos(angle)) * majorAxis) ** 2
