@@ -764,8 +764,9 @@ def visEllipticalRing(Utable, Vtable, Lambda, param):
     """
 
     # List of parameter
-    majorAxis = param["majorAxis"]
-    minorAxis = param["minorAxis"]
+    x = np.random.normal(1,0.5,1)[0]
+    majorAxis = param["majorAxis"] * x
+    minorAxis = param["minorAxis"] * x
     angle = param["angle"]
     x0 = param["x0"]
     y0 = param["y0"]
