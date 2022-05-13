@@ -1333,11 +1333,11 @@ def visSpiralTemp(
     tab_orient, tab_faceon, typei, N2, r_nuc, step, alpha = _compute_param_elts_spec(
         mjd, param, verbose=verbose, display=display
     )
+    x0, y0, x2, y2, fwhmx2, fwhmy2, angle2 = tab_orient
+    list_param = []
 
     sizeVar = np.random.normal(1, param["sigma"], len(x2))
 
-    x0, y0, x2, y2, fwhmx2, fwhmy2, angle2 = tab_orient
-    list_param = []
 
     if (len(x2)) == 0:
         if verbose:
