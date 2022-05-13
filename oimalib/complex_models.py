@@ -764,9 +764,9 @@ def visEllipticalRing(Utable, Vtable, Lambda, param):
     """
 
     # List of parameter
-    x = np.random.normal(1,0.1,1)[0]
-    majorAxis = param["majorAxis"] * x
-    minorAxis = param["minorAxis"] * x
+    sizeVar = param["sizeVar"]
+    majorAxis = param["majorAxis"] * sizeVar
+    minorAxis = param["minorAxis"] * sizeVar
     angle = param["angle"]
     x0 = param["x0"]
     y0 = param["y0"]
@@ -1334,6 +1334,8 @@ def visSpiralTemp(
         mjd, param, verbose=verbose, display=display
     )
 
+    sizeVar = np.random.normal(1, param["sigma"], len(x2))
+
     x0, y0, x2, y2, fwhmx2, fwhmy2, angle2 = tab_orient
     list_param = []
 
@@ -1356,6 +1358,7 @@ def visSpiralTemp(
                     "majorAxis": fwhmx2[i],
                     "minorAxis": fwhmy2[i],
                     "angle": angle2[i],
+                    "sizeVar": sizeVar[i]
                 }
             )
     else:
@@ -1368,6 +1371,7 @@ def visSpiralTemp(
                     "majorAxis": fwhmx2[i],
                     "minorAxis": fwhmy2[i],
                     "angle": angle2[i],
+                    "sizeVar": sizeVar[i]
                 }
             )
 
