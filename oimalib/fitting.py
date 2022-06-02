@@ -231,7 +231,7 @@ def check_params_model(param):
         c2 = (angle_0 > 360) | (angle_0 < 0)
         c3 = (q > 1) | (q < 0)
         c4 = (opening_angle > 180) | (opening_angle < 0)
-        c5 = (r_nuc > 30) | (r_nuc < 0)
+        c5 = (r_nuc > 30) | (r_nuc < 3)
         c6 = (halo > 100) | (halo<0)
         if c1 | c2 | c3 | c4 | c5 | c6  :
             log = (
