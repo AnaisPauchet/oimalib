@@ -310,7 +310,7 @@ def visEllipticalGaussianDisk(Utable, Vtable, Lambda, param):
     majorAxis = param["majorAxis"] * sizeVar
     minorAxis = param["minorAxis"] * sizeVar
     #minorAxis = elong * majorAxis
-    angle = param["angle"]
+    angle = param["pa"]
     x0 = param["x0"]
     y0 = param["y0"]
 
